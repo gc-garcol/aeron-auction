@@ -1,0 +1,88 @@
+name: aeron-auction
+
+x-node: &node
+  build:
+    context: ..
+    dockerfile: deploy/Dockerfile.cluster
+  image: aeron-auction/cluster
+  shm_size: 1g # the default 64MB is too small for Aeron's log buffers
+  restart: on-failure # a crashed node retries until Aeron accepts its old mark files as stale
+  stop_grace_period: 20s
+
+x-node-env: &node-env
+  CLUSTER_MEMBERS: "0,node0:9002,node0:9003,node0:9004,node0:9005,node0:8010|1,node1:9002,node1:9003,node1:9004,node1:9005,node1:8010|2,node2:9002,node2:9003,node2:9004,node2:9005,node2:8010"
+  CLUSTER_DIR: /data
+  AERON_DIR: /dev/shm/aeron
+  SERVER_PORT: "9100"
+
+services:
+  node0:
+    <<: *node
+    hostname: node0
+    environment:
+      <<: *node-env
+      NODE_ID: "0"
+    volumes:
+      - node0-data:/data
+
+  node1:
+    <<: *node
+    hostname: node1
+    environment:
+      <<: *node-env
+      NODE_ID: "1"
+    volumes:
+      - node1-data:/data
+
+  node2:
+    <<: *node
+    hostname: node2
+    environment:
+      <<: *node-env
+      NODE_ID: "2"
+    volumes:
+      - node2-data:/data
+
+  client:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.client
+    image: aeron-auction/client
+    hostname: client
+    shm_size: 256m
+    environment:
+      AERON_DIR: /dev/shm/aeron
+      INGRESS_ENDPOINTS: "0=node0:9002,1=node1:9002,2=node2:9002"
+      EGRESS_HOST: client
+    ports:
+      - "8080:8080"
+    depends_on:
+      - node0
+      - node1
+      - node2
+
+  prometheus:
+    image: prom/prometheus:v3.5.0
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
+
+  grafana:
+    image: grafana/grafana:12.1.0
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/auction.json
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+
+volumes:
+  node0-data:
+  node1-data:
+  node2-data:

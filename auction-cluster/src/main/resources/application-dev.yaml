@@ -1,0 +1,7 @@
+# A one-node cluster on this machine. A single node is its own majority, but it has no failover.
+# Environment variables still win, which is how Docker dev mode points at its own hostnames.
+auction:
+  node-id: ${NODE_ID:0}
+  cluster-members: ${CLUSTER_MEMBERS:0,localhost:20001,localhost:20002,localhost:20003,localhost:20004,localhost:20005}
+  cluster-dir: ${CLUSTER_DIR:${java.io.tmpdir}/auction-dev/node/data}
+  aeron-dir: ${AERON_DIR:${java.io.tmpdir}/auction-dev/node/aeron}

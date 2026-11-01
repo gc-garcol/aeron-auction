@@ -1,0 +1,22 @@
+spring:
+  application:
+    name: auction-cluster
+
+server:
+  port: ${SERVER_PORT:9100}
+
+# Required. The dev profile provides values for a one-node cluster on this machine.
+auction:
+  node-id: ${NODE_ID}
+  cluster-members: ${CLUSTER_MEMBERS}
+  cluster-dir: ${CLUSTER_DIR}
+  aeron-dir: ${AERON_DIR}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,prometheus
+  metrics:
+    tags:
+      node: ${auction.node-id}

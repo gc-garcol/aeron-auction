@@ -1,0 +1,95 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<sbe:messageSchema xmlns:sbe="http://fixprotocol.io/2016/sbe"
+                   package="gc.garcol.aeronauction.protocol.sbe"
+                   id="1"
+                   version="0"
+                   semanticVersion="0.1"
+                   description="Auction cluster messages and snapshot records"
+                   byteOrder="littleEndian">
+    <types>
+        <composite name="messageHeader" description="Starts every message">
+            <type name="blockLength" primitiveType="uint16"/>
+            <type name="templateId" primitiveType="uint16"/>
+            <type name="schemaId" primitiveType="uint16"/>
+            <type name="version" primitiveType="uint16"/>
+        </composite>
+        <composite name="groupSizeEncoding" description="Starts every repeating group">
+            <type name="blockLength" primitiveType="uint16"/>
+            <type name="numInGroup" primitiveType="uint16"/>
+        </composite>
+        <enum name="BooleanType" encodingType="uint8">
+            <validValue name="FALSE">0</validValue>
+            <validValue name="TRUE">1</validValue>
+        </enum>
+        <enum name="ReplyStatus" encodingType="uint8">
+            <validValue name="OK">0</validValue>
+            <validValue name="INVALID_INPUT">1</validValue>
+            <validValue name="NOT_FOUND">2</validValue>
+            <validValue name="AUCTION_CLOSED">3</validValue>
+            <validValue name="BID_TOO_LOW">4</validValue>
+            <validValue name="SELLER_CANNOT_BID">5</validValue>
+        </enum>
+        <composite name="Auction" description="Amounts are minor units. highestBidderId 0 means no bids yet.">
+            <type name="id" primitiveType="int64"/>
+            <type name="sellerId" primitiveType="int64"/>
+            <type name="startPrice" primitiveType="int64"/>
+            <type name="minIncrement" primitiveType="int64"/>
+            <type name="highestBid" primitiveType="int64"/>
+            <type name="highestBidderId" primitiveType="int64"/>
+            <type name="endsAt" primitiveType="int64"/>
+            <ref name="closed" type="BooleanType"/>
+        </composite>
+    </types>
+
+    <sbe:message name="CreateAuction" id="1">
+        <field name="correlationId" id="1" type="int64"/>
+        <field name="sellerId" id="2" type="int64"/>
+        <field name="startPrice" id="3" type="int64"/>
+        <field name="minIncrement" id="4" type="int64"/>
+        <field name="durationMs" id="5" type="int64"/>
+    </sbe:message>
+
+    <sbe:message name="PlaceBid" id="2">
+        <field name="correlationId" id="1" type="int64"/>
+        <field name="auctionId" id="2" type="int64"/>
+        <field name="bidderId" id="3" type="int64"/>
+        <field name="amount" id="4" type="int64"/>
+    </sbe:message>
+
+    <sbe:message name="GetAuction" id="3">
+        <field name="correlationId" id="1" type="int64"/>
+        <field name="auctionId" id="2" type="int64"/>
+    </sbe:message>
+
+    <sbe:message name="ListAuctions" id="4">
+        <field name="correlationId" id="1" type="int64"/>
+        <field name="page" id="2" type="int32"/>
+        <field name="size" id="3" type="int32"/>
+    </sbe:message>
+
+    <sbe:message name="AuctionReply" id="100">
+        <field name="correlationId" id="1" type="int64"/>
+        <field name="status" id="2" type="ReplyStatus"/>
+        <field name="auction" id="3" type="Auction"/>
+    </sbe:message>
+
+    <sbe:message name="AuctionPageReply" id="101">
+        <field name="correlationId" id="1" type="int64"/>
+        <field name="status" id="2" type="ReplyStatus"/>
+        <field name="page" id="3" type="int32"/>
+        <field name="size" id="4" type="int32"/>
+        <field name="totalItems" id="5" type="int64"/>
+        <group name="items" id="6" dimensionType="groupSizeEncoding">
+            <field name="auction" id="1" type="Auction"/>
+        </group>
+    </sbe:message>
+
+    <sbe:message name="SnapshotHeader" id="200">
+        <field name="nextAuctionId" id="1" type="int64"/>
+        <field name="lastTimestamp" id="2" type="int64"/>
+    </sbe:message>
+
+    <sbe:message name="SnapshotAuction" id="201">
+        <field name="auction" id="1" type="Auction"/>
+    </sbe:message>
+</sbe:messageSchema>

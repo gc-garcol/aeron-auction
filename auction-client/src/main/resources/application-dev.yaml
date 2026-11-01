@@ -1,0 +1,6 @@
+# Talks to a one-node cluster on this machine.
+# Environment variables still win, which is how Docker dev mode points at its own hostnames.
+auction:
+  aeron-dir: ${AERON_DIR:${java.io.tmpdir}/auction-dev/client/aeron}
+  ingress-endpoints: ${INGRESS_ENDPOINTS:0=localhost:20001}
+  egress-host: ${EGRESS_HOST:localhost}

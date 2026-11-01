@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>4.1.2</version>
+        <relativePath/> <!-- lookup parent from repository -->
+    </parent>
+    <groupId>gc.garcol</groupId>
+    <artifactId>aeron-auction</artifactId>
+    <version>0.0.1-SNAPSHOT</version>
+    <packaging>pom</packaging>
+    <name>aeron-auction</name>
+    <description>Auction system on Aeron Cluster with a REST client</description>
+
+    <modules>
+        <module>auction-protocol</module>
+        <module>auction-cluster</module>
+        <module>auction-client</module>
+    </modules>
+
+    <properties>
+        <java.version>25</java.version>
+        <aeron.version>1.54.0</aeron.version>
+        <sbe.version>1.41.0</sbe.version>
+        <vue.version>3.5.44</vue.version>
+        <springdoc.version>3.2.0</springdoc.version>
+        <checkstyle.version>10.23.0</checkstyle.version>
+        <!-- Aeron fails on Java 25 without this flag. -->
+        <aeron.jvm.flags>--add-opens java.base/jdk.internal.misc=ALL-UNNAMED</aeron.jvm.flags>
+    </properties>
+
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <!-- aeron-all already bundles Agrona, so do not add Agrona separately. -->
+                <groupId>io.aeron</groupId>
+                <artifactId>aeron-all</artifactId>
+                <version>${aeron.version}</version>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+
+    <build>
+        <plugins>
+            <plugin>
+                <!-- Agrona's code style. Runs early in every build and fails it on any violation. -->
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-checkstyle-plugin</artifactId>
+                <version>3.6.0</version>
+                <configuration>
+                    <configLocation>${maven.multiModuleProjectDirectory}/config/checkstyle/checkstyle.xml</configLocation>
+                    <propertyExpansion>config_loc=${maven.multiModuleProjectDirectory}/config/checkstyle</propertyExpansion>
+                    <sourceDirectories>
+                        <sourceDirectory>${project.basedir}/src/main/java</sourceDirectory>
+                    </sourceDirectories>
+                    <consoleOutput>true</consoleOutput>
+                    <failOnViolation>true</failOnViolation>
+                    <violationSeverity>warning</violationSeverity>
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>checkstyle</id>
+                        <phase>validate</phase>
+                        <goals>
+                            <goal>check</goal>
+                        </goals>
+                    </execution>
+                </executions>
+                <dependencies>
+                    <dependency>
+                        <groupId>com.puppycrawl.tools</groupId>
+                        <artifactId>checkstyle</artifactId>
+                        <version>${checkstyle.version}</version>
+                    </dependency>
+                </dependencies>
+            </plugin>
+        </plugins>
+    </build>
+</project>

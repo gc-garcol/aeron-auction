@@ -1,0 +1,208 @@
+:root {
+  color-scheme: light dark;
+  --bg: #f4f5f7;
+  --panel: #ffffff;
+  --text: #1c2128;
+  --muted: #5d6673;
+  --line: #dde1e7;
+  --accent: #1f5fbf;
+  --accent-text: #ffffff;
+  --good: #17693f;
+  --good-bg: #e4f4ea;
+  --bad: #b3261e;
+  --bad-bg: #fbeaea;
+  --warn: #7a4f00;
+  --warn-bg: #fdf1d7;
+  --neutral-bg: #eceef1;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #14171c;
+    --panel: #1d2127;
+    --text: #e7eaee;
+    --muted: #a0a9b5;
+    --line: #333a44;
+    --accent: #7aabf0;
+    --accent-text: #0e1420;
+    --good: #66d39a;
+    --good-bg: #16301f;
+    --bad: #f28b82;
+    --bad-bg: #3a1b1a;
+    --warn: #e6b95c;
+    --warn-bg: #362a10;
+    --neutral-bg: #2a2f37;
+  }
+}
+
+* { box-sizing: border-box; }
+[v-cloak] { display: none; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+h1 { margin: 0; font-size: 21px; }
+h2 { margin: 0; font-size: 15px; }
+a { color: var(--accent); }
+.muted { color: var(--muted); font-size: 13px; }
+
+.top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 16px;
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 18px 16px 10px;
+}
+
+.connection { margin: 0; color: var(--muted); font-size: 13px; }
+.connection.up { color: var(--good); }
+.connection.down { color: var(--bad); font-weight: 600; }
+.docs { margin-left: auto; font-size: 14px; }
+
+/* Stays on screen, because the auction someone is bidding on may be far down the page. */
+.message {
+  position: sticky;
+  top: 8px;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  max-width: 1168px;
+  margin: 0 auto 10px;
+  padding: 8px 8px 8px 14px;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgb(0 0 0 / 18%);
+}
+
+@media (max-width: 1200px) { .message { margin-inline: 16px; } }
+
+.message.good { color: var(--good); background: var(--good-bg); }
+.message.bad { color: var(--bad); background: var(--bad-bg); }
+.message.warn { color: var(--warn); background: var(--warn-bg); }
+
+.dismiss { min-height: 28px; padding: 0 8px; color: inherit; background: none; border: 0; font-size: 18px; line-height: 1; }
+
+.layout {
+  display: grid;
+  grid-template-columns: 280px minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 16px 32px;
+}
+
+.side { display: grid; gap: 16px; }
+
+/* Keeps the bidder ID and the form in view while scrolling through auctions, if the screen is tall enough for them. */
+@media (min-width: 761px) and (min-height: 700px) {
+  .side { position: sticky; top: 8px; }
+}
+
+.panel, .card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+
+.panel { padding: 16px; }
+.panel h2 { margin-bottom: 12px; }
+.create summary { cursor: pointer; }
+.create summary h2 { display: inline; margin: 0; }
+.create form { margin-top: 12px; }
+
+.field { display: grid; gap: 4px; margin-bottom: 12px; font-size: 13px; color: var(--muted); }
+.panel form .wide { margin-top: 4px; }
+.panel > .field { margin-bottom: 0; }
+
+input, select, button {
+  min-height: 38px;
+  padding: 6px 10px;
+  color: var(--text);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  font: inherit;
+}
+
+input { width: 100%; min-width: 0; font-size: 15px; }
+input.number { font-variant-numeric: tabular-nums; }
+input[aria-invalid="true"] { border-color: var(--bad); }
+.error { color: var(--bad); font-size: 12px; }
+
+button { cursor: pointer; white-space: nowrap; }
+button:hover:not(:disabled) { border-color: var(--accent); }
+button:disabled { cursor: default; opacity: 0.55; }
+button.primary { color: var(--accent-text); background: var(--accent); border-color: var(--accent); font-weight: 600; }
+button.wide { width: 100%; }
+
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+.content-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; margin: 2px 0 12px; }
+
+.find { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 6px; margin-left: auto; }
+.find .field { display: block; width: 130px; margin: 0; }
+.find .error { flex-basis: 100%; text-align: right; }
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.empty { margin: 0; padding: 40px 16px; color: var(--muted); text-align: center; background: var(--panel); border: 1px dashed var(--line); border-radius: 10px; }
+
+.cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(270px, 1fr));
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.card { display: flex; flex-direction: column; gap: 10px; padding: 14px; }
+.card.ended { background: transparent; }
+
+.card-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+
+.badge { padding: 2px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; white-space: nowrap; }
+.badge.open { color: var(--good); background: var(--good-bg); }
+.badge.leading { color: var(--accent-text); background: var(--accent); }
+.badge.soon { color: var(--warn); background: var(--warn-bg); }
+.badge.closed { color: var(--muted); background: var(--neutral-bg); }
+
+.price { display: grid; }
+.amount { font-size: 26px; font-weight: 650; line-height: 1.2; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+
+.facts { display: flex; gap: 24px; margin: 0; }
+.facts dt { color: var(--muted); font-size: 12px; }
+.facts dd { margin: 0; font-variant-numeric: tabular-nums; }
+.time.soon { color: var(--warn); font-weight: 600; }
+
+.bid .field { margin: 0; }
+.bid-row { display: flex; gap: 6px; }
+.bid, .hint, .outcome { margin: auto 0 0; padding-top: 10px; border-top: 1px solid var(--line); }
+.hint { color: var(--muted); font-size: 13px; }
+.outcome { color: var(--muted); }
+.outcome.won { color: var(--good); font-weight: 600; }
+
+.pager { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-top: 16px; }
+.page-info { color: var(--muted); font-size: 13px; }
+.per-page { display: flex; align-items: center; gap: 8px; margin-left: auto; color: var(--muted); font-size: 13px; }
+
+@media (max-width: 760px) {
+  .layout { grid-template-columns: minmax(0, 1fr); }
+  .find { width: 100%; justify-content: flex-start; margin-left: 0; }
+  .find .field { flex: 1; width: auto; }
+  .find .error { text-align: left; }
+}

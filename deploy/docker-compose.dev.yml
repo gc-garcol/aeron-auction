@@ -1,0 +1,37 @@
+# Dev mode: a one-node cluster, with the same client, Prometheus and Grafana as the 3-node setup.
+# A single node is its own majority, so it starts faster and uses less memory, but it has no failover.
+name: aeron-auction-dev
+
+services:
+  node0:
+    extends:
+      file: docker-compose.yml
+      service: node0
+    environment:
+      SPRING_PROFILES_ACTIVE: dev
+      CLUSTER_MEMBERS: "0,node0:9002,node0:9003,node0:9004,node0:9005,node0:8010"
+
+  client:
+    extends:
+      file: docker-compose.yml
+      service: client
+    environment:
+      SPRING_PROFILES_ACTIVE: dev
+      INGRESS_ENDPOINTS: "0=node0:9002"
+    depends_on: !override
+      - node0
+
+  prometheus:
+    extends:
+      file: docker-compose.yml
+      service: prometheus
+    volumes:
+      - ./prometheus.dev.yml:/etc/prometheus/prometheus.yml:ro
+
+  grafana:
+    extends:
+      file: docker-compose.yml
+      service: grafana
+
+volumes:
+  node0-data:

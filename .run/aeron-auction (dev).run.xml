@@ -1,0 +1,7 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="aeron-auction (dev)" type="CompoundRunConfigurationType">
+    <toRun name="auction-cluster (dev)" type="SpringBootApplicationConfigurationType" />
+    <toRun name="auction-client (dev)" type="SpringBootApplicationConfigurationType" />
+    <method v="2" />
+  </configuration>
+</component>

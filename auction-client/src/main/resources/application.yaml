@@ -1,0 +1,22 @@
+spring:
+  application:
+    name: auction-client
+
+server:
+  port: ${SERVER_PORT:8080}
+
+# The first three are required. The dev profile provides values for a one-node cluster on this machine.
+auction:
+  aeron-dir: ${AERON_DIR}
+  ingress-endpoints: ${INGRESS_ENDPOINTS}
+  egress-host: ${EGRESS_HOST}
+  rpc-timeout-ms: ${RPC_TIMEOUT_MS:2000}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,prometheus
+  endpoint:
+    health:
+      show-details: always

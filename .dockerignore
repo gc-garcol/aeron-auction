@@ -1,0 +1,4 @@
+*
+!auction-cluster/target/auction-cluster-*.jar
+!auction-cluster/target/lib
+!auction-client/target/auction-client-*.jar
