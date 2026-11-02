@@ -1,5 +1,6 @@
-package gc.garcol.aeronauction.cluster;
+package gc.garcol.aeronauction.cluster.node;
 
+import gc.garcol.aeronauction.cluster.metrics.NodeMetrics;
 import io.aeron.archive.Archive;
 import io.aeron.archive.ArchiveThreadingMode;
 import io.aeron.archive.client.AeronArchive;
@@ -18,24 +19,18 @@ import java.util.concurrent.TimeUnit;
  */
 final class AuctionNode implements AutoCloseable
 {
-    record Config(int nodeId, String clusterMembers, File baseDir, String aeronDir)
-    {
-    }
-
-    private static final String LOG_CHANNEL = "aeron:udp?term-length=16m";
-    private static final long LEADER_HEARTBEAT_TIMEOUT_NS = TimeUnit.SECONDS.toNanos(3);
-    private static final long STARTUP_CANVASS_TIMEOUT_NS = TimeUnit.SECONDS.toNanos(20);
-
     private final NodeMetrics metrics;
+    private final ReadChannel readChannel;
     private final ClusteredMediaDriver clusteredMediaDriver;
     private final ClusteredServiceContainer container;
-
     private AuctionNode(
         final NodeMetrics metrics,
+        final ReadChannel readChannel,
         final ClusteredMediaDriver clusteredMediaDriver,
         final ClusteredServiceContainer container)
     {
         this.metrics = metrics;
+        this.readChannel = readChannel;
         this.clusteredMediaDriver = clusteredMediaDriver;
         this.container = container;
     }
@@ -73,41 +68,39 @@ final class AuctionNode implements AutoCloseable
             .clusterDir(clusterDir)
             .aeronDirectoryName(config.aeronDir())
             .ingressChannel("aeron:udp")
-            .logChannel(LOG_CHANNEL)
+            .logChannel(config.node().logChannel())
             .replicationChannel(replicationChannel)
-            .leaderHeartbeatTimeoutNs(LEADER_HEARTBEAT_TIMEOUT_NS)
-            .startupCanvassTimeoutNs(STARTUP_CANVASS_TIMEOUT_NS)
+            .leaderHeartbeatTimeoutNs(TimeUnit.MILLISECONDS.toNanos(config.node().leaderHeartbeatTimeoutMs()))
+            .startupCanvassTimeoutNs(TimeUnit.MILLISECONDS.toNanos(config.node().startupCanvassTimeoutMs()))
             .terminationHook(terminationHook)
             .archiveContext(archiveClient.clone());
 
         ClusteredMediaDriver clusteredMediaDriver = null;
+        ReadChannel readChannel = null;
         try
         {
             clusteredMediaDriver = ClusteredMediaDriver.launch(driverContext, archiveContext, consensusContext);
 
+            readChannel = new ReadChannel(
+                config.aeronDir(), config.readEndpoint(), config.nodeId(), config.readChannel(), metrics);
+
             final ClusteredServiceContainer.Context serviceContext = new ClusteredServiceContainer.Context()
                 .aeronDirectoryName(config.aeronDir())
                 .clusterDir(clusterDir)
-                .clusteredService(new AuctionService(metrics))
+                .clusteredService(new AuctionService(metrics, readChannel, config.node().maxReplyAttempts()))
                 .terminationHook(terminationHook)
                 .archiveContext(archiveClient.clone());
 
             final ClusteredServiceContainer container = ClusteredServiceContainer.launch(serviceContext);
 
             metrics.connect(config.aeronDir());
-            return new AuctionNode(metrics, clusteredMediaDriver, container);
+            return new AuctionNode(metrics, readChannel, clusteredMediaDriver, container);
         }
         catch (final RuntimeException ex)
         {
-            CloseHelper.quietCloseAll(metrics, clusteredMediaDriver);
+            CloseHelper.quietCloseAll(metrics, readChannel, clusteredMediaDriver);
             throw ex;
         }
-    }
-
-    @Override
-    public void close()
-    {
-        CloseHelper.closeAll(metrics, container, clusteredMediaDriver);
     }
 
     private static String memberHost(final String members, final int nodeId)
@@ -121,8 +114,8 @@ final class AuctionNode implements AutoCloseable
      * separated by {@code |}.
      *
      * @param members the full cluster member string.
-     * @param nodeId of the member to read.
-     * @param field index within the member.
+     * @param nodeId  of the member to read.
+     * @param field   index within the member.
      * @return the field's value.
      */
     private static String memberField(final String members, final int nodeId, final int field)
@@ -136,5 +129,22 @@ final class AuctionNode implements AutoCloseable
             }
         }
         throw new IllegalArgumentException("node " + nodeId + " is not in " + members);
+    }
+
+    @Override
+    public void close()
+    {
+        CloseHelper.closeAll(metrics, container, readChannel, clusteredMediaDriver);
+    }
+
+    record Config(
+        int nodeId,
+        String clusterMembers,
+        File baseDir,
+        String aeronDir,
+        String readEndpoint,
+        AuctionNodeProperties node,
+        ReadChannelProperties readChannel)
+    {
     }
 }

@@ -1,6 +1,6 @@
 package gc.garcol.aeronauction.client;
 
-import gc.garcol.aeronauction.protocol.JvmFlagCheck;
+import gc.garcol.aeronauction.protocol.runtime.JvmFlagCheck;
 import io.swagger.v3.oas.annotations.OpenAPIDefinition;
 import io.swagger.v3.oas.annotations.info.Info;
 import org.springframework.boot.SpringApplication;

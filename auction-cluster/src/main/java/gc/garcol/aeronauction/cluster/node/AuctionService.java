@@ -1,10 +1,13 @@
-package gc.garcol.aeronauction.cluster;
+package gc.garcol.aeronauction.cluster.node;
 
-import gc.garcol.aeronauction.protocol.AuctionPageReply;
-import gc.garcol.aeronauction.protocol.AuctionReply;
-import gc.garcol.aeronauction.protocol.AuctionView;
-import gc.garcol.aeronauction.protocol.Codec;
-import gc.garcol.aeronauction.protocol.Command;
+import gc.garcol.aeronauction.cluster.domain.AuctionBook;
+import gc.garcol.aeronauction.cluster.domain.AuctionTimers;
+import gc.garcol.aeronauction.cluster.metrics.NodeMetrics;
+import gc.garcol.aeronauction.protocol.codec.Codec;
+import gc.garcol.aeronauction.protocol.command.Command;
+import gc.garcol.aeronauction.protocol.model.AuctionView;
+import gc.garcol.aeronauction.protocol.reply.AuctionPageReply;
+import gc.garcol.aeronauction.protocol.reply.AuctionReply;
 import gc.garcol.aeronauction.protocol.sbe.ReplyStatus;
 import io.aeron.ExclusivePublication;
 import io.aeron.Image;
@@ -30,22 +33,24 @@ public final class AuctionService implements ClusteredService
 
     private static final Logger LOG = LoggerFactory.getLogger(AuctionService.class);
 
-    private static final int MAX_REPLY_ATTEMPTS = 1_000;
-
     private final AuctionBook book = new AuctionBook();
     private final AuctionTimers timers = new AuctionTimers();
     private final ExpandableArrayBuffer buffer = new ExpandableArrayBuffer(Codec.MAX_MESSAGE_LENGTH);
     private final Codec codec = new Codec();
     private final NodeMetrics metrics;
+    private final ReadChannel readChannel;
+    private final int maxReplyAttempts;
 
     private Cluster cluster;
     private IdleStrategy idleStrategy;
     private boolean tickArmed;
     private long lastTimestamp;
 
-    AuctionService(final NodeMetrics metrics)
+    AuctionService(final NodeMetrics metrics, final ReadChannel readChannel, final int maxReplyAttempts)
     {
         this.metrics = metrics;
+        this.readChannel = readChannel;
+        this.maxReplyAttempts = maxReplyAttempts;
     }
 
     @Override
@@ -106,7 +111,7 @@ public final class AuctionService implements ClusteredService
             case Command.GetAuction c -> encode(correlationId, book.get(c.auctionId(), timestamp));
             case Command.ListAuctions c ->
             {
-                final AuctionBook.Page page = book.list(c.page(), c.size(), timestamp);
+                final AuctionBook.Page page = book.list(c.page(), c.size(), c.status(), c.order(), timestamp);
                 final AuctionPageReply pageReply = new AuctionPageReply(
                     correlationId, page.status(), c.page(), c.size(), page.totalItems(), page.items());
                 yield codec.encodePageReply(pageReply, buffer);
@@ -169,6 +174,16 @@ public final class AuctionService implements ClusteredService
     {
     }
 
+    /**
+     * Answers reads that came through the read channel instead of the log. This isn't part of the state machine, so it
+     * must only read. Aeron can also call it from inside {@code idleStrategy.idle()}, partway through a callback.
+     */
+    @Override
+    public int doBackgroundWork(final long nowNs)
+    {
+        return readChannel.poll(book, cluster.role() == Cluster.Role.LEADER, cluster.time(), nowNs);
+    }
+
     private int encode(final long correlationId, final AuctionBook.Result result)
     {
         return codec.encodeReply(new AuctionReply(correlationId, result.status(), result.auction()), buffer);
@@ -207,19 +222,19 @@ public final class AuctionService implements ClusteredService
     }
 
     /**
-     * Replies are best effort and never affect state. A client that has gone away or stays back-pressured loses its
+     * Replies are the best effort and never affect state. A client that has gone away or stays back-pressured loses its
      * reply rather than stalling the cluster, and it sees an RPC timeout instead.
      *
      * @param session to reply to.
-     * @param length of the reply already encoded in the buffer.
+     * @param length  of the reply already encoded in the buffer.
      */
     private void reply(final ClientSession session, final int length)
     {
         idleStrategy.reset();
-        for (int attempt = 0; attempt < MAX_REPLY_ATTEMPTS; attempt++)
+        for (int attempt = 0; attempt < maxReplyAttempts; attempt++)
         {
             final long result = session.offer(buffer, 0, length);
-            if (result > 0 || (result != Publication.BACK_PRESSURED && result != Publication.ADMIN_ACTION))
+            if ((result != Publication.BACK_PRESSURED && result != Publication.ADMIN_ACTION))
             {
                 return;
             }
@@ -254,10 +269,10 @@ public final class AuctionService implements ClusteredService
     private void onSnapshotFragment(final DirectBuffer message, final int offset, final int length, final Header header)
     {
         final Object record = codec.decodeSnapshotRecord(message, offset, length);
-        if (record instanceof Codec.SnapshotHeader snapshotHeader)
+        if (record instanceof Codec.SnapshotHeader(long nextAuctionId, long timestamp))
         {
-            book.restoreNextAuctionId(snapshotHeader.nextAuctionId());
-            lastTimestamp = snapshotHeader.lastTimestamp();
+            book.restoreNextAuctionId(nextAuctionId);
+            lastTimestamp = timestamp;
         }
         else
         {

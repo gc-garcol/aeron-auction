@@ -22,6 +22,7 @@ services:
     environment:
       <<: *node-env
       NODE_ID: "0"
+      READ_ENDPOINT: node0:9006
     volumes:
       - node0-data:/data
 
@@ -31,6 +32,7 @@ services:
     environment:
       <<: *node-env
       NODE_ID: "1"
+      READ_ENDPOINT: node1:9006
     volumes:
       - node1-data:/data
 
@@ -40,6 +42,7 @@ services:
     environment:
       <<: *node-env
       NODE_ID: "2"
+      READ_ENDPOINT: node2:9006
     volumes:
       - node2-data:/data
 
@@ -54,6 +57,8 @@ services:
       AERON_DIR: /dev/shm/aeron
       INGRESS_ENDPOINTS: "0=node0:9002,1=node1:9002,2=node2:9002"
       EGRESS_HOST: client
+      READ_ENDPOINTS: "0=node0:9006,1=node1:9006,2=node2:9006"
+      READ_REPLY_ENDPOINT: client:9007
     ports:
       - "8080:8080"
     depends_on:

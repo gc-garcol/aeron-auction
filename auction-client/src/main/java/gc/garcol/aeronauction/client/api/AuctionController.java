@@ -1,19 +1,20 @@
 package gc.garcol.aeronauction.client.api;
 
-import gc.garcol.aeronauction.client.rpc.ClusterRpcAgent;
-import gc.garcol.aeronauction.client.rpc.RpcFailure;
-import gc.garcol.aeronauction.protocol.AuctionPageReply;
-import gc.garcol.aeronauction.protocol.AuctionReply;
-import gc.garcol.aeronauction.protocol.AuctionView;
-import gc.garcol.aeronauction.protocol.Command;
-import gc.garcol.aeronauction.protocol.Reply;
-import gc.garcol.aeronauction.protocol.sbe.ReplyStatus;
+import gc.garcol.aeronauction.client.api.dto.AuctionResponse;
+import gc.garcol.aeronauction.client.api.dto.CreateAuctionRequest;
+import gc.garcol.aeronauction.client.api.dto.ErrorResponse;
+import gc.garcol.aeronauction.client.api.dto.PageResponse;
+import gc.garcol.aeronauction.client.api.dto.PlaceBidRequest;
+import gc.garcol.aeronauction.protocol.command.Command;
+import gc.garcol.aeronauction.protocol.sbe.AuctionStatusFilter;
+import gc.garcol.aeronauction.protocol.sbe.SortOrder;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -24,9 +25,8 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.util.List;
+import java.util.Locale;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CompletionException;
 
 /**
  * The REST API. Each request becomes one command to the cluster.
@@ -34,120 +34,10 @@ import java.util.concurrent.CompletionException;
 @Tag(name = "Auctions")
 @RestController
 @RequestMapping("/auctions")
+@RequiredArgsConstructor
 public class AuctionController
 {
-    /**
-     * Body of {@code POST /auctions}.
-     *
-     * @param sellerId of the seller.
-     * @param startPrice the lowest allowed first bid.
-     * @param minIncrement the amount each later bid must add.
-     * @param durationMs how long the auction stays open.
-     */
-    public record CreateAuctionRequest(
-        @Schema(example = "1") long sellerId,
-        @Schema(example = "100") long startPrice,
-        @Schema(example = "10") long minIncrement,
-        @Schema(example = "60000", description = "From 1,000 (1 second) to 604,800,000 (7 days)") long durationMs)
-    {
-    }
-
-    /**
-     * Body of {@code POST /auctions/{id}/bids}.
-     *
-     * @param bidderId of the bidder.
-     * @param amount of the bid.
-     */
-    public record PlaceBidRequest(
-        @Schema(example = "2") long bidderId,
-        @Schema(example = "100") long amount)
-    {
-    }
-
-    /**
-     * An auction as JSON. The bid fields are null until someone bids.
-     *
-     * @param id of the auction.
-     * @param sellerId of the seller.
-     * @param startPrice the lowest allowed first bid.
-     * @param minIncrement the amount each later bid must add.
-     * @param highestBid the current highest bid.
-     * @param highestBidderId who placed it, and the winner once the auction is closed.
-     * @param endsAt the deadline in epoch milliseconds.
-     * @param status {@code OPEN} or {@code CLOSED}.
-     */
-    public record AuctionResponse(
-        long id,
-        long sellerId,
-        long startPrice,
-        long minIncrement,
-        Long highestBid,
-        Long highestBidderId,
-        long endsAt,
-        String status)
-    {
-        static AuctionResponse of(final AuctionView auction)
-        {
-            final boolean hasBid = auction.highestBidderId() != AuctionView.NO_BIDDER;
-            return new AuctionResponse(
-                auction.id(),
-                auction.sellerId(),
-                auction.startPrice(),
-                auction.minIncrement(),
-                hasBid ? auction.highestBid() : null,
-                hasBid ? auction.highestBidderId() : null,
-                auction.endsAt(),
-                auction.closed() ? "CLOSED" : "OPEN");
-        }
-    }
-
-    /**
-     * One page of auctions as JSON.
-     *
-     * @param items the auctions on this page, in ID order, which is empty past the last page.
-     * @param page the zero-based page number.
-     * @param size the requested page size.
-     * @param totalItems the number of auctions in all pages.
-     * @param totalPages the number of pages.
-     */
-    public record PageResponse(List<AuctionResponse> items, int page, int size, long totalItems, long totalPages)
-    {
-        static PageResponse of(final AuctionPageReply reply)
-        {
-            return new PageResponse(
-                reply.items().stream().map(AuctionResponse::of).toList(),
-                reply.page(),
-                reply.size(),
-                reply.totalItems(),
-                (reply.totalItems() + reply.size() - 1) / reply.size());
-        }
-    }
-
-    /**
-     * Body of every error response.
-     *
-     * @param error what went wrong.
-     */
-    public record ErrorResponse(String error)
-    {
-    }
-
-    private static final String NOT_SENT = "The command was not sent, so it did not happen";
-    private static final String OUTCOME_UNKNOWN = "No reply in time. The command may still have applied, " +
-        "so check with GET before retrying";
-    private static final String NOT_FOUND = "Unknown auction";
-
-    private final ClusterRpcAgent rpc;
-
-    /**
-     * Creates the controller.
-     *
-     * @param rpc used to reach the cluster.
-     */
-    public AuctionController(final ClusterRpcAgent rpc)
-    {
-        this.rpc = rpc;
-    }
+    private final ClusterGateway gateway;
 
     /**
      * Opens an auction.
@@ -166,16 +56,16 @@ public class AuctionController
         content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
     @ApiResponse(
         responseCode = "503",
-        description = NOT_SENT,
+        description = ApiMessages.NOT_SENT,
         content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
     @ApiResponse(
         responseCode = "504",
-        description = OUTCOME_UNKNOWN,
+        description = ApiMessages.OUTCOME_UNKNOWN,
         content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
     @PostMapping
     public CompletableFuture<ResponseEntity<?>> create(@RequestBody final CreateAuctionRequest request)
     {
-        return call(
+        return gateway.call(
             new Command.CreateAuction(
                 request.sellerId(), request.startPrice(), request.minIncrement(), request.durationMs()),
             HttpStatus.CREATED);
@@ -184,7 +74,7 @@ public class AuctionController
     /**
      * Places a bid.
      *
-     * @param id of the auction.
+     * @param id      of the auction.
      * @param request describing the bid.
      * @return the updated auction, or an error.
      */
@@ -199,7 +89,7 @@ public class AuctionController
         content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
     @ApiResponse(
         responseCode = "404",
-        description = NOT_FOUND,
+        description = ApiMessages.NOT_FOUND,
         content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
     @ApiResponse(
         responseCode = "409",
@@ -207,17 +97,17 @@ public class AuctionController
         content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
     @ApiResponse(
         responseCode = "503",
-        description = NOT_SENT,
+        description = ApiMessages.NOT_SENT,
         content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
     @ApiResponse(
         responseCode = "504",
-        description = OUTCOME_UNKNOWN,
+        description = ApiMessages.OUTCOME_UNKNOWN,
         content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
     @PostMapping("/{id}/bids")
     public CompletableFuture<ResponseEntity<?>> bid(
         @PathVariable final long id, @RequestBody final PlaceBidRequest request)
     {
-        return call(new Command.PlaceBid(id, request.bidderId(), request.amount()), HttpStatus.OK);
+        return gateway.call(new Command.PlaceBid(id, request.bidderId(), request.amount()), HttpStatus.OK);
     }
 
     /**
@@ -233,93 +123,86 @@ public class AuctionController
         content = @Content(schema = @Schema(implementation = AuctionResponse.class)))
     @ApiResponse(
         responseCode = "404",
-        description = NOT_FOUND,
+        description = ApiMessages.NOT_FOUND,
         content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
     @ApiResponse(
         responseCode = "503",
-        description = NOT_SENT,
+        description = ApiMessages.NOT_SENT,
         content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
     @ApiResponse(
         responseCode = "504",
-        description = OUTCOME_UNKNOWN,
+        description = ApiMessages.OUTCOME_UNKNOWN,
         content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
     @GetMapping("/{id}")
     public CompletableFuture<ResponseEntity<?>> get(@PathVariable final long id)
     {
-        return call(new Command.GetAuction(id), HttpStatus.OK);
+        return gateway.call(new Command.GetAuction(id), HttpStatus.OK);
     }
 
     /**
-     * Lists auctions, oldest first.
+     * Lists auctions, newest first by default.
      *
      * @param page the zero-based page number.
      * @param size the number of auctions per page.
+     * @param status which auctions to include: ALL, OPEN or CLOSED.
+     * @param order the direction to sort IDs in: DESC or ASC.
      * @return the page, or an error.
      */
-    @Operation(summary = "List auctions, oldest first")
+    @Operation(summary = "List auctions, newest first by default")
     @ApiResponse(
         responseCode = "200",
-        description = "One page of auctions. A page past the last one is empty",
+        description = "One page of auctions. Totals count only matches. A page past the last one is empty",
         content = @Content(schema = @Schema(implementation = PageResponse.class)))
     @ApiResponse(
         responseCode = "400",
-        description = "Invalid page or size",
+        description = "Invalid page, size, status or order",
         content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
     @ApiResponse(
         responseCode = "503",
-        description = NOT_SENT,
+        description = ApiMessages.NOT_SENT,
         content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
     @ApiResponse(
         responseCode = "504",
-        description = OUTCOME_UNKNOWN,
+        description = ApiMessages.OUTCOME_UNKNOWN,
         content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
     @GetMapping
     public CompletableFuture<ResponseEntity<?>> list(
         @Parameter(description = "Zero-based page number") @RequestParam(defaultValue = "0") final int page,
         @Parameter(description = "Auctions per page, up to " + Command.ListAuctions.MAX_SIZE)
-        @RequestParam(defaultValue = "20") final int size)
+        @RequestParam(defaultValue = "20") final int size,
+        @Parameter(description = "Auctions to include", schema = @Schema(allowableValues = {"ALL", "OPEN", "CLOSED"}))
+        @RequestParam(defaultValue = "ALL") final String status,
+        @Parameter(description = "The direction to sort IDs in", schema = @Schema(allowableValues = {"DESC", "ASC"}))
+        @RequestParam(defaultValue = "DESC") final String order)
     {
-        return call(new Command.ListAuctions(page, size), HttpStatus.OK);
-    }
-
-    private CompletableFuture<ResponseEntity<?>> call(final Command command, final HttpStatus success)
-    {
-        return rpc.submit(command).handle((reply, failure) ->
-            failure != null ? toFailureResponse(failure) : toResponse(reply, success));
-    }
-
-    private static ResponseEntity<?> toResponse(final Reply reply, final HttpStatus success)
-    {
-        final ReplyStatus status = reply.status();
-        if (status == ReplyStatus.OK)
+        final AuctionStatusFilter statusFilter = parseStatus(status);
+        final SortOrder sortOrder = parseOrder(order);
+        if (statusFilter == null || sortOrder == null)
         {
-            final Object body = switch (reply)
-            {
-                case AuctionReply auctionReply -> AuctionResponse.of(auctionReply.auction());
-                case AuctionPageReply pageReply -> PageResponse.of(pageReply);
-            };
-            return ResponseEntity.status(success).body(body);
+            return CompletableFuture.completedFuture(
+                ResponseEntity.badRequest().body(new ErrorResponse("INVALID_INPUT")));
         }
+        return gateway.call(new Command.ListAuctions(page, size, statusFilter, sortOrder), HttpStatus.OK);
+    }
 
-        final HttpStatus httpStatus = switch (status)
+    private static AuctionStatusFilter parseStatus(final String status)
+    {
+        return switch (status.toUpperCase(Locale.ROOT))
         {
-            case INVALID_INPUT -> HttpStatus.BAD_REQUEST;
-            case NOT_FOUND -> HttpStatus.NOT_FOUND;
-            case AUCTION_CLOSED, BID_TOO_LOW, SELLER_CANNOT_BID -> HttpStatus.CONFLICT;
-            default -> HttpStatus.INTERNAL_SERVER_ERROR;
+            case "ALL" -> AuctionStatusFilter.ALL;
+            case "OPEN" -> AuctionStatusFilter.OPEN;
+            case "CLOSED" -> AuctionStatusFilter.CLOSED;
+            default -> null;
         };
-        return ResponseEntity.status(httpStatus).body(new ErrorResponse(status.name()));
     }
 
-    private static ResponseEntity<?> toFailureResponse(final Throwable failure)
+    private static SortOrder parseOrder(final String order)
     {
-        final Throwable cause = failure instanceof CompletionException ? failure.getCause() : failure;
-        if (cause instanceof RpcFailure rpcFailure)
+        return switch (order.toUpperCase(Locale.ROOT))
         {
-            final HttpStatus httpStatus = rpcFailure.kind() == RpcFailure.Kind.TIMEOUT ?
-                HttpStatus.GATEWAY_TIMEOUT : HttpStatus.SERVICE_UNAVAILABLE;
-            return ResponseEntity.status(httpStatus).body(new ErrorResponse(rpcFailure.getMessage()));
-        }
-        return ResponseEntity.internalServerError().body(new ErrorResponse("unexpected error"));
+            case "ASC" -> SortOrder.ASC;
+            case "DESC" -> SortOrder.DESC;
+            default -> null;
+        };
     }
 }

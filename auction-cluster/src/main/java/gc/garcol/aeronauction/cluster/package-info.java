@@ -1,4 +1,4 @@
 /**
- * The replicated auction state machine and the process that hosts it.
+ * The entry point of one cluster node.
  */
 package gc.garcol.aeronauction.cluster;

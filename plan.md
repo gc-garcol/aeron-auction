@@ -22,31 +22,31 @@ The aim is a small, readable reference project, so simple code wins over peak th
 
 ### Key decisions
 
-| Topic | Decision | Why |
-|---|---|---|
-| RPC transport | Use the `AeronCluster` client (ingress and egress) | It already runs over Aeron transport, and it adds what raw pub/sub lacks: commands reach the replicated log, and the client follows a new leader |
-| Modules | `auction-client`, `auction-cluster`, and a shared `auction-protocol` | The client and cluster only share messages, so the client carries no cluster code. Neither of them depends on the other |
-| Encoding | SBE (Simple Binary Encoding), generated at build time from `sbe/auction-schema.xml` | One schema defines all messages and snapshot records. Generated code only needs Agrona, which `aeron-all` bundles |
-| Auction storage | `ArrayList` indexed by `id - 1` | IDs are sequential and auctions are never removed. A rough benchmark at 1M auctions: bid lookup + update took 40ns, against 155ns for `LinkedHashMap` and 1,188ns for `TreeMap`, at about half the memory per auction. Cleaning up closed auctions would require changing this |
-| Code style | Agrona's Checkstyle rules, pinned to commit `4e0400c5` and run on every build | A violation fails the build, so the style cannot drift |
-| Dev mode | A `dev` Spring profile on both apps runs one node on this machine. `deploy/docker-compose.dev.yml` activates it in Docker and reuses the 3-node service definitions, with its own data | Faster and lighter for daily work, but it has no failover. Without the profile, settings are required, so a real deployment cannot fall back to local defaults |
-| Web UI | Vue 3 in the client's `static/` folder, using its browser build from the `org.webjars.npm:vue` Maven dependency | No Node build step or CDN, and it ships in the same jar. Inputs are plain text, so there are no number spinners. It refreshes every 2 seconds while its tab is visible, and each refresh is a read through the log |
-| API docs | springdoc 3.2.0 serves Swagger UI and the OpenAPI document from `auction-client` | Standard for Spring Boot. Response types and example values are declared on the controller, because they cannot be inferred from `ResponseEntity<?>` |
-| Testing | No unit tests. Verify by running the real stack and breaking it (section 9) | Project decision |
-| Reads | `GET` also goes through the log | Linearizable and needs no second code path, at the cost of read latency |
-| Timeouts | Agrona wheel in both modules (see section 5) | Auction expiry in the cluster, RPC timeout in the client |
+| Topic           | Decision                                                                                                                                                                               | Why                                                                                                                                                                                                                                                                            |
+|-----------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| RPC transport   | Use the `AeronCluster` client (ingress and egress)                                                                                                                                     | It already runs over Aeron transport, and it adds what raw pub/sub lacks: commands reach the replicated log, and the client follows a new leader                                                                                                                               |
+| Modules         | `auction-client`, `auction-cluster`, and a shared `auction-protocol`                                                                                                                   | The client and cluster only share messages, so the client carries no cluster code. Neither of them depends on the other                                                                                                                                                        |
+| Encoding        | SBE (Simple Binary Encoding), generated at build time from `sbe/auction-schema.xml`                                                                                                    | One schema defines all messages and snapshot records. Generated code only needs Agrona, which `aeron-all` bundles                                                                                                                                                              |
+| Auction storage | `ArrayList` indexed by `id - 1`                                                                                                                                                        | IDs are sequential and auctions are never removed. A rough benchmark at 1M auctions: bid lookup + update took 40ns, against 155ns for `LinkedHashMap` and 1,188ns for `TreeMap`, at about half the memory per auction. Cleaning up closed auctions would require changing this |
+| Code style      | Agrona's Checkstyle rules, pinned to commit `4e0400c5` and run on every build                                                                                                          | A violation fails the build, so the style cannot drift                                                                                                                                                                                                                         |
+| Dev mode        | A `dev` Spring profile on both apps runs one node on this machine. `deploy/docker-compose.dev.yml` activates it in Docker and reuses the 3-node service definitions, with its own data | Faster and lighter for daily work, but it has no failover. Without the profile, settings are required, so a real deployment cannot fall back to local defaults                                                                                                                 |
+| Web UI          | Vue 3 in the client's `static/` folder, using its browser build from the `org.webjars.npm:vue` Maven dependency                                                                        | No Node build step or CDN, and it ships in the same jar. Inputs are plain text, so there are no number spinners. It refreshes every 2 seconds while its tab is visible, and each refresh is a read through the log                                                             |
+| API docs        | springdoc 3.2.0 serves Swagger UI and the OpenAPI document from `auction-client`                                                                                                       | Standard for Spring Boot. Response types and example values are declared on the controller, because they cannot be inferred from `ResponseEntity<?>`                                                                                                                           |
+| Testing         | No unit tests. Verify by running the real stack and breaking it (section 9)                                                                                                            | Project decision                                                                                                                                                                                                                                                               |
+| Reads           | `GET` also goes through the log                                                                                                                                                        | Linearizable and needs no second code path, at the cost of read latency                                                                                                                                                                                                        |
+| Timeouts        | Agrona wheel in both modules (see section 5)                                                                                                                                           | Auction expiry in the cluster, RPC timeout in the client                                                                                                                                                                                                                       |
 
 ### Versions
 
-| Component | Version | Notes |
-|---|---|---|
-| Java | 25 | Needs `--add-opens java.base/jdk.internal.misc=ALL-UNNAMED` everywhere (see section 10) |
-| Aeron | `io.aeron:aeron-all:1.54.0` | Already bundles Agrona, so do not add Agrona separately |
-| Spring Boot | 4.1.2 | Use `spring-boot-starter-webmvc` and `spring-boot-starter-actuator` |
-| Micrometer | 1.17.2 | Managed by the Boot BOM. Add `micrometer-registry-prometheus` |
-| SBE | `uk.co.real-logic:sbe-tool:1.41.0` | Build time only |
-| Checkstyle | 10.23.0 | The version Agrona used at the pinned commit |
-| Maven wrapper | 3.9.16 | Do not move to 3.10.0: IntelliJ 2026.1 fails to sync with it |
+| Component     | Version                            | Notes                                                                                   |
+|---------------|------------------------------------|-----------------------------------------------------------------------------------------|
+| Java          | 25                                 | Needs `--add-opens java.base/jdk.internal.misc=ALL-UNNAMED` everywhere (see section 10) |
+| Aeron         | `io.aeron:aeron-all:1.54.0`        | Already bundles Agrona, so do not add Agrona separately                                 |
+| Spring Boot   | 4.1.2                              | Use `spring-boot-starter-webmvc` and `spring-boot-starter-actuator`                     |
+| Micrometer    | 1.17.2                             | Managed by the Boot BOM. Add `micrometer-registry-prometheus`                           |
+| SBE           | `uk.co.real-logic:sbe-tool:1.41.0` | Build time only                                                                         |
+| Checkstyle    | 10.23.0                            | The version Agrona used at the pinned commit                                            |
+| Maven wrapper | 3.9.16                             | Do not move to 3.10.0: IntelliJ 2026.1 fails to sync with it                            |
 
 ## 2. Project layout
 
@@ -56,18 +56,26 @@ aeron-auction/
 ├── auction-client/               Spring Boot app (existing main class moves here)
 │   └── gc/garcol/aeronauction/client/
 │       ├── AeronAuctionApplication.java
-│       ├── api/AuctionController.java      REST + DTOs + status mapping
+│       ├── api/AuctionController.java      REST endpoints
+│       ├── api/ClusterCommandGateway.java  sends commands, maps outcomes to HTTP responses
+│       ├── api/ApiMessages.java            response descriptions for the API docs
+│       ├── api/dto/                        JSON request and response records
 │       └── rpc/ClusterRpcAgent.java        session, pending map, RPC timeout wheel
 ├── auction-cluster/              Spring Boot app, one per node
 │   └── gc/garcol/aeronauction/cluster/
-│       ├── AuctionClusterApplication.java, AuctionNodeConfig.java   Boot entry point and wiring
-│       ├── AuctionNode.java      driver + archive + consensus + service
-│       ├── AuctionService.java   ClusteredService: dispatch, snapshot, tick
-│       ├── AuctionBook.java      pure business logic, no Aeron dependency
-│       ├── AuctionTimers.java    wheel wrapper (section 5)
-│       └── NodeMetrics.java      business metrics + Aeron counters
+│       ├── AuctionClusterApplication.java  Boot entry point
+│       ├── node/AuctionNodeConfig.java     Spring wiring
+│       ├── node/AuctionNode.java           driver + archive + consensus + service
+│       ├── node/AuctionService.java        ClusteredService: dispatch, snapshot, tick
+│       ├── node/ReadChannel.java           answers reads outside the log
+│       ├── domain/AuctionBook.java         pure business logic, no Aeron dependency
+│       ├── domain/AuctionTimers.java       wheel wrapper (section 5)
+│       └── metrics/NodeMetrics.java        business metrics + Aeron counters
 ├── auction-protocol/             shared by the client and the cluster
-│   ├── gc/garcol/aeronauction/protocol/    domain records + Codec, which wraps the generated SBE classes
+│   ├── gc/garcol/aeronauction/protocol/
+│   │   ├── command/ reply/ model/          domain records
+│   │   ├── codec/Codec.java                wraps the generated SBE classes
+│   │   └── runtime/JvmFlagCheck.java       startup check for the JVM flag Aeron needs
 │   └── src/main/resources/sbe/auction-schema.xml
 ├── config/checkstyle/            Agrona's rules
 └── deploy/
@@ -81,23 +89,23 @@ aeron-auction/
 
 Amounts are `long` minor units, so there is no floating point in replicated state.
 
-| Method | Path | Body | Success |
-|---|---|---|---|
-| `POST` | `/auctions` | `sellerId, startPrice, minIncrement, durationMs` | `201` + auction |
-| `POST` | `/auctions/{id}/bids` | `bidderId, amount` | `200` + auction |
-| `GET` | `/auctions/{id}` | none | `200` + auction |
-| `GET` | `/auctions?page=0&size=20` | none | `200` + `items, page, size, totalItems, totalPages` |
+| Method | Path                       | Body                                             | Success                                             |
+|--------|----------------------------|--------------------------------------------------|-----------------------------------------------------|
+| `POST` | `/auctions`                | `sellerId, startPrice, minIncrement, durationMs` | `201` + auction                                     |
+| `POST` | `/auctions/{id}/bids`      | `bidderId, amount`                               | `200` + auction                                     |
+| `GET`  | `/auctions/{id}`           | none                                             | `200` + auction                                     |
+| `GET`  | `/auctions?page=0&size=20&status=ALL&order=DESC` | none                       | `200` + `items, page, size, totalItems, totalPages` |
 
 Auction response: `id, sellerId, startPrice, minIncrement, highestBid, highestBidderId, endsAt, status`.
 `status` is `OPEN` or `CLOSED`. The winner is `highestBidderId` once the auction is closed.
 
-| Situation | HTTP |
-|---|---|
-| Invalid input, such as a duration outside 1s to 7d | `400` |
-| Unknown auction | `404` |
+| Situation                                                           | HTTP  |
+|---------------------------------------------------------------------|-------|
+| Invalid input, such as a duration outside 1s to 7d                  | `400` |
+| Unknown auction                                                     | `404` |
 | Auction closed, bid too low, or seller bidding on their own auction | `409` |
-| Client queue full, cluster back-pressured, or no session | `503` |
-| No reply within the RPC timeout | `504` |
+| Client queue full, cluster back-pressured, or no session            | `503` |
+| No reply within the RPC timeout                                     | `504` |
 
 `504` means **outcome unknown**, because the command may still commit. The client never retries on its own,
 since that could place a bid twice. The response body says to check with `GET`.
@@ -107,16 +115,16 @@ since that could place a bid twice. The response body says to check with `GET`.
 Defined in `auction-protocol/src/main/resources/sbe/auction-schema.xml`. Every message starts with SBE's standard
 header, and every command and reply carries a `correlationId` that the reply echoes.
 
-| Message | Fields |
-|---|---|
-| `CreateAuction` | `correlationId, sellerId, startPrice, minIncrement, durationMs` |
-| `PlaceBid` | `correlationId, auctionId, bidderId, amount` |
-| `GetAuction` | `correlationId, auctionId` |
-| `ListAuctions` | `correlationId, page, size` |
-| `AuctionReply` | `correlationId, status, auction` |
+| Message            | Fields                                                                              |
+|--------------------|-------------------------------------------------------------------------------------|
+| `CreateAuction`    | `correlationId, sellerId, startPrice, minIncrement, durationMs`                     |
+| `PlaceBid`         | `correlationId, auctionId, bidderId, amount`                                        |
+| `GetAuction`       | `correlationId, auctionId`                                                          |
+| `ListAuctions`     | `correlationId, page, size, status, order`                                          |
+| `AuctionReply`     | `correlationId, status, auction`                                                    |
 | `AuctionPageReply` | `correlationId, status, page, size, totalItems`, and a repeating group of `auction` |
-| `SnapshotHeader` | `nextAuctionId, lastTimestamp` |
-| `SnapshotAuction` | `auction` |
+| `SnapshotHeader`   | `nextAuctionId, lastTimestamp`                                                      |
+| `SnapshotAuction`  | `auction`                                                                           |
 
 `Codec` translates between these and the domain records. It holds reusable SBE flyweights, so it is not thread-safe
 and each owning thread has its own instance. It rejects messages with a wrong schema ID or a too-short length, and
@@ -185,13 +193,13 @@ the timer, and a reply that arrives after expiry is dropped.
 
 `AuctionService implements ClusteredService`, with logic kept in the Aeron-free `AuctionBook`.
 
-| Callback | Behaviour |
-|---|---|
-| `onStart` | Load the snapshot if there is one, then rebuild the wheel |
+| Callback           | Behaviour                                                                          |
+|--------------------|------------------------------------------------------------------------------------|
+| `onStart`          | Load the snapshot if there is one, then rebuild the wheel                          |
 | `onSessionMessage` | Decode, apply to `AuctionBook`, schedule the timer on create, reply to the session |
-| `onTimerEvent` | Run the tick described in section 5 |
-| `onTakeSnapshot` | Write a header (`nextAuctionId`, `lastTimestamp`), then every auction |
-| `onRoleChange` | Record the role for metrics only |
+| `onTimerEvent`     | Run the tick described in section 5                                                |
+| `onTakeSnapshot`   | Write a header (`nextAuctionId`, `lastTimestamp`), then every auction              |
+| `onRoleChange`     | Record the role for metrics only                                                   |
 
 - **Replies:** call `session.offer` on every node. Followers get a mocked success, so no role check is needed.
   Retry back-pressure with `cluster.idleStrategy().idle()`, and do the same for `scheduleTimer`.
@@ -240,16 +248,16 @@ Agent loop:  drain queue → offer → pollEgress → poll wheel → sendKeepAli
 
 **Cluster node** (`:9100/actuator/prometheus`): the standard Spring Boot metrics, plus:
 
-| Metric | Source |
-|---|---|
-| `auction_auctions_opened_total`, `auction_auctions_closed_total` | Service |
-| `auction_bids_total{result}` | Service |
-| `auction_close_lag_ms` (close time minus `endsAt`) | Service |
-| `auction_open_auctions`, `auction_wheel_timers` | Service |
-| `aeron_cluster_role` (type 201), `aeron_cluster_commit_position` (203) | Aeron counters |
-| `aeron_cluster_election_state` (207), `aeron_cluster_leadership_term` (239) | Aeron counters |
-| `aeron_cluster_errors` (212), `aeron_cluster_client_timeouts` (213) | Aeron counters |
-| `aeron_cluster_service_max_cycle_ns` (218) | Aeron counters |
+| Metric                                                                          | Source                 |
+|---------------------------------------------------------------------------------|------------------------|
+| `auction_auctions_opened_total`, `auction_auctions_closed_total`                | Service                |
+| `auction_bids_total{result}`                                                    | Service                |
+| `auction_close_lag_ms` (close time minus `endsAt`)                              | Service                |
+| `auction_open_auctions`, `auction_wheel_timers`                                 | Service                |
+| `aeron_cluster_role` (type 201), `aeron_cluster_commit_position` (203)          | Aeron counters         |
+| `aeron_cluster_election_state` (207), `aeron_cluster_leadership_term` (239)     | Aeron counters         |
+| `aeron_cluster_errors` (212), `aeron_cluster_client_timeouts` (213)             | Aeron counters         |
+| `aeron_cluster_service_max_cycle_ns` (218)                                      | Aeron counters         |
 | `aeron_driver_errors`, `aeron_driver_naks_received`, `aeron_driver_short_sends` | Driver system counters |
 
 **Metrics must never affect state.** The service only writes to them, and scrapes read on the metrics thread.
@@ -266,17 +274,17 @@ A restarted node replays its log, which would count everything twice, so busines
 
 Each milestone ended with the real system doing the listed thing, or, for milestone 1, a passing build.
 
-| # | Work | Done when |
-|---|---|---|
-| 1 | Multi-module build, SBE generation, Checkstyle | `./mvnw clean package` passes with 0 violations |
-| 2 | Protocol and `AuctionBook` | Bid rules behave correctly through the REST API |
-| 3 | `AuctionTimers` | Auctions close on time on all nodes |
-| 4 | `AuctionService`, snapshot and restore | State and open auctions survive a full restart from a snapshot |
-| 5 | `AuctionNode`, 3 nodes | After killing the leader, a new one is elected and the auction closes once, with the same winner on the surviving nodes |
-| 6 | `ClusterRpcAgent` and REST API | The full flow works over HTTP, plus the `504` and `503` paths |
-| 7 | Docker Compose | `docker compose up` then `demo.sh` works, and killed nodes rejoin |
-| 8 | Metrics, Prometheus, Grafana | All scrape targets are up and every dashboard panel returns data |
-| 9 | README and demo script | A new reader can go from clone to a closed auction using the README alone |
+| # | Work                                           | Done when                                                                                                               |
+|---|------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------|
+| 1 | Multi-module build, SBE generation, Checkstyle | `./mvnw clean package` passes with 0 violations                                                                         |
+| 2 | Protocol and `AuctionBook`                     | Bid rules behave correctly through the REST API                                                                         |
+| 3 | `AuctionTimers`                                | Auctions close on time on all nodes                                                                                     |
+| 4 | `AuctionService`, snapshot and restore         | State and open auctions survive a full restart from a snapshot                                                          |
+| 5 | `AuctionNode`, 3 nodes                         | After killing the leader, a new one is elected and the auction closes once, with the same winner on the surviving nodes |
+| 6 | `ClusterRpcAgent` and REST API                 | The full flow works over HTTP, plus the `504` and `503` paths                                                           |
+| 7 | Docker Compose                                 | `docker compose up` then `demo.sh` works, and killed nodes rejoin                                                       |
+| 8 | Metrics, Prometheus, Grafana                   | All scrape targets are up and every dashboard panel returns data                                                        |
+| 9 | README and demo script                         | A new reader can go from clone to a closed auction using the README alone                                               |
 
 **Docker notes:**
 
@@ -293,31 +301,32 @@ Each milestone ended with the real system doing the listed thing, or, for milest
 
 These were tested on 2026-11-01 with throwaway programs against `aeron-all-1.54.0` on GraalVM 25.0.1.
 
-| Finding | Evidence | Effect on the plan |
-|---|---|---|
-| Aeron fails on Java 25 without the flag | `IllegalAccessError` on `jdk.internal.misc.Unsafe`. Works with `--add-opens java.base/jdk.internal.misc=ALL-UNNAMED` | Add the flag to Surefire `argLine`, Docker, `spring-boot:run` and IntelliJ run configs |
-| A single-node cluster works | Session message, reply and cluster timer all worked | The API usage in this plan is sound |
-| A plain drain loop makes replicas diverge | Simulated restores landing between ticks, 200 runs: 114,826 mismatched events, or 920 with start times aligned to the tick. With the extra `poll`: **0**, aligned or not, and the fired set always equals `deadline <= now` | Rule 1 in section 5 |
-| One `poll` advances at most one tick | A timer 5s overdue took 8 polls to fire | Loop in section 5 |
-| Timer resolution must be a power of 2 | `100` throws `tick resolution must be a power of 2` | Use 128ms |
-| Timers beyond one revolution are safe | A 600s deadline on a 65s wheel fired at the right time, not early | No wheel size limit on auction duration |
-| Firing order is not insertion order | A later-scheduled timer fired first | Rule 3 in section 5 |
-| `cluster.time()` is unusable in `onStart` | Returned `0`, and `timeUnit()` was `null`, on a fresh start | Rule 6 in section 5 |
+| Finding                                   | Evidence                                                                                                                                                                                                                    | Effect on the plan                                                                     |
+|-------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|----------------------------------------------------------------------------------------|
+| Aeron fails on Java 25 without the flag   | `IllegalAccessError` on `jdk.internal.misc.Unsafe`. Works with `--add-opens java.base/jdk.internal.misc=ALL-UNNAMED`                                                                                                        | Add the flag to Surefire `argLine`, Docker, `spring-boot:run` and IntelliJ run configs |
+| A single-node cluster works               | Session message, reply and cluster timer all worked                                                                                                                                                                         | The API usage in this plan is sound                                                    |
+| A plain drain loop makes replicas diverge | Simulated restores landing between ticks, 200 runs: 114,826 mismatched events, or 920 with start times aligned to the tick. With the extra `poll`: **0**, aligned or not, and the fired set always equals `deadline <= now` | Rule 1 in section 5                                                                    |
+| One `poll` advances at most one tick      | A timer 5s overdue took 8 polls to fire                                                                                                                                                                                     | Loop in section 5                                                                      |
+| Timer resolution must be a power of 2     | `100` throws `tick resolution must be a power of 2`                                                                                                                                                                         | Use 128ms                                                                              |
+| Timers beyond one revolution are safe     | A 600s deadline on a 65s wheel fired at the right time, not early                                                                                                                                                           | No wheel size limit on auction duration                                                |
+| Firing order is not insertion order       | A later-scheduled timer fired first                                                                                                                                                                                         | Rule 3 in section 5                                                                    |
+| `cluster.time()` is unusable in `onStart` | Returned `0`, and `timeUnit()` was `null`, on a fresh start                                                                                                                                                                 | Rule 6 in section 5                                                                    |
 
 **Verified on the running 3-node Docker stack** on 2026-11-02, using the final code:
 
-| Scenario | Result |
-|---|---|
-| Normal auction | Correct `201`, `200`, `400`, `404` and `409` responses, and the same close on all 3 nodes |
-| Kill the leader mid-auction | A bid was accepted again about 5 seconds later, and the auction closed once |
-| Restart the killed node | It rejoined and replayed to the same closes |
-| Kill both followers | Bid returned `504` |
-| Kill all 3 nodes | Requests returned `503`, and health reported `DOWN` |
-| Restart all 3 nodes | Service recovered from the log, and the client reconnected on its own |
+| Scenario                                    | Result                                                                                            |
+|---------------------------------------------|---------------------------------------------------------------------------------------------------|
+| Normal auction                              | Correct `201`, `200`, `400`, `404` and `409` responses, and the same close on all 3 nodes         |
+| Kill the leader mid-auction                 | A bid was accepted again about 5 seconds later, and the auction closed once                       |
+| Restart the killed node                     | It rejoined and replayed to the same closes                                                       |
+| Kill both followers                         | Bid returned `504`                                                                                |
+| Kill all 3 nodes                            | Requests returned `503`, and health reported `DOWN`                                               |
+| Restart all 3 nodes                         | Service recovered from the log, and the client reconnected on its own                             |
 | Snapshot, then kill and restart all 3 nodes | Open auction restored, IDs continued, a new bid was accepted, and the auction closed on all nodes |
-| Prometheus and Grafana | All 4 targets up, and all 16 dashboard panels return data |
+| Prometheus and Grafana                      | All 4 targets up, and all 16 dashboard panels return data                                         |
 
-The tick timer surviving a snapshot restore is confirmed by the last auction closing after the restart. `/actuator/prometheus`
+The tick timer surviving a snapshot restore is confirmed by the last auction closing after the restart.
+`/actuator/prometheus`
 on Boot 4 works with the actuator starter plus `micrometer-registry-prometheus`, and `shm_size: 1g` is enough.
 
 **Bugs this process found:**
@@ -339,12 +348,21 @@ kernel-bypass networking.
 
 ## 12. Implementation progress
 
-- [x] 1. Multi-module build, SBE generation, Checkstyle
-- [x] 2. Protocol and `AuctionBook`
-- [x] 3. `AuctionTimers`
-- [x] 4. `AuctionService`, snapshot and restore
-- [x] 5. `AuctionNode` and 3-node failover
-- [x] 6. `ClusterRpcAgent` and REST API
-- [x] 7. Docker Compose
-- [x] 8. Metrics, Prometheus, Grafana
-- [x] 9. README and demo script
+- [x] 
+    1. Multi-module build, SBE generation, Checkstyle
+- [x] 
+    2. Protocol and `AuctionBook`
+- [x] 
+    3. `AuctionTimers`
+- [x] 
+    4. `AuctionService`, snapshot and restore
+- [x] 
+    5. `AuctionNode` and 3-node failover
+- [x] 
+    6. `ClusterRpcAgent` and REST API
+- [x] 
+    7. Docker Compose
+- [x] 
+    8. Metrics, Prometheus, Grafana
+- [x] 
+    9. README and demo script

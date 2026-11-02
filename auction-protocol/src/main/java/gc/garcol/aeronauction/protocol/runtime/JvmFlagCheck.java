@@ -1,4 +1,4 @@
-package gc.garcol.aeronauction.protocol;
+package gc.garcol.aeronauction.protocol.runtime;
 
 /**
  * Aeron fails on Java 25 without a JVM flag, and with an error that does not say so. An application cannot add the

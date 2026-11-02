@@ -1,6 +1,6 @@
 package gc.garcol.aeronauction.cluster;
 
-import gc.garcol.aeronauction.protocol.JvmFlagCheck;
+import gc.garcol.aeronauction.protocol.runtime.JvmFlagCheck;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 

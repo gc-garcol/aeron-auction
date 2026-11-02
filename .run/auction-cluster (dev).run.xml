@@ -1,14 +1,15 @@
 <component name="ProjectRunConfigurationManager">
-  <configuration default="false" name="auction-cluster (dev)" type="SpringBootApplicationConfigurationType" factoryName="Spring Boot">
-    <option name="ACTIVE_PROFILES" value="dev" />
-    <envs>
-      <env name="SPRING_PROFILES_ACTIVE" value="dev" />
-    </envs>
-    <module name="auction-cluster" />
-    <option name="SPRING_BOOT_MAIN_CLASS" value="gc.garcol.aeronauction.cluster.AuctionClusterApplication" />
-    <option name="VM_PARAMETERS" value="--add-opens java.base/jdk.internal.misc=ALL-UNNAMED" />
-    <method v="2">
-      <option name="Make" enabled="true" />
-    </method>
-  </configuration>
+    <configuration default="false" name="auction-cluster (dev)" type="SpringBootApplicationConfigurationType"
+                   factoryName="Spring Boot">
+        <option name="ACTIVE_PROFILES" value="dev"/>
+        <envs>
+            <env name="SPRING_PROFILES_ACTIVE" value="dev"/>
+        </envs>
+        <module name="auction-cluster"/>
+        <option name="SPRING_BOOT_MAIN_CLASS" value="gc.garcol.aeronauction.cluster.AuctionClusterApplication"/>
+        <option name="VM_PARAMETERS" value="--add-opens java.base/jdk.internal.misc=ALL-UNNAMED"/>
+        <method v="2">
+            <option name="Make" enabled="true"/>
+        </method>
+    </configuration>
 </component>

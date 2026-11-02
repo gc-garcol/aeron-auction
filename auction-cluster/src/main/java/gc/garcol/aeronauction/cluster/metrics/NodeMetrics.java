@@ -1,6 +1,6 @@
-package gc.garcol.aeronauction.cluster;
+package gc.garcol.aeronauction.cluster.metrics;
 
-import gc.garcol.aeronauction.protocol.AuctionView;
+import gc.garcol.aeronauction.protocol.model.AuctionView;
 import gc.garcol.aeronauction.protocol.sbe.ReplyStatus;
 import io.aeron.Aeron;
 import io.aeron.AeronCounters;
@@ -22,7 +22,7 @@ import java.util.concurrent.atomic.AtomicLong;
  * <p>A restarted node replays its log, so business counters only increment on the leader, otherwise a restart would
  * count everything twice. Gauges reflect current state on every node.
  */
-final class NodeMetrics implements AutoCloseable
+public final class NodeMetrics implements AutoCloseable
 {
     private static final Map<Integer, String> CLUSTER_COUNTERS = Map.of(
         AeronCounters.CLUSTER_NODE_ROLE_TYPE_ID, "aeron.cluster.role",
@@ -51,7 +51,12 @@ final class NodeMetrics implements AutoCloseable
     private volatile boolean leader;
     private volatile Aeron aeron;
 
-    NodeMetrics(final MeterRegistry registry)
+    /**
+     * Registers the business metrics.
+     *
+     * @param registry to register them with.
+     */
+    public NodeMetrics(final MeterRegistry registry)
     {
         this.registry = registry;
         // Not "created": the Prometheus naming convention strips that suffix from counters.
@@ -78,7 +83,7 @@ final class NodeMetrics implements AutoCloseable
      *
      * @param aeronDir of the node's media driver.
      */
-    void connect(final String aeronDir)
+    public void connect(final String aeronDir)
     {
         aeron = Aeron.connect(new Aeron.Context().aeronDirectoryName(aeronDir));
         CLUSTER_COUNTERS.forEach((typeId, name) -> registerGauge(name, typeId, ANY_KEY));
@@ -86,12 +91,20 @@ final class NodeMetrics implements AutoCloseable
             registerGauge(name, AeronCounters.DRIVER_SYSTEM_COUNTER_TYPE_ID, systemCounterId));
     }
 
-    void onRoleChange(final Cluster.Role role)
+    /**
+     * Records this node's new role. Business counters only increment on the leader.
+     *
+     * @param role the new role.
+     */
+    public void onRoleChange(final Cluster.Role role)
     {
         leader = role == Cluster.Role.LEADER;
     }
 
-    void onAuctionOpened()
+    /**
+     * Counts an opened auction.
+     */
+    public void onAuctionOpened()
     {
         if (leader)
         {
@@ -99,7 +112,12 @@ final class NodeMetrics implements AutoCloseable
         }
     }
 
-    void onBid(final ReplyStatus status)
+    /**
+     * Counts a bid.
+     *
+     * @param status the outcome of the bid.
+     */
+    public void onBid(final ReplyStatus status)
     {
         if (leader)
         {
@@ -107,7 +125,13 @@ final class NodeMetrics implements AutoCloseable
         }
     }
 
-    void onAuctionClosed(final AuctionView auction, final long closedAt)
+    /**
+     * Counts a closed auction and records how long after its deadline it closed.
+     *
+     * @param auction  that closed.
+     * @param closedAt the timestamp of the tick that closed it.
+     */
+    public void onAuctionClosed(final AuctionView auction, final long closedAt)
     {
         if (leader)
         {
@@ -116,7 +140,23 @@ final class NodeMetrics implements AutoCloseable
         }
     }
 
-    void onStateChanged(final int open, final long timers)
+    /**
+     * Counts a read channel message.
+     *
+     * @param result what happened to the message.
+     */
+    public void onChannelRead(final String result)
+    {
+        registry.counter("auction.read.channel.requests", "result", result).increment();
+    }
+
+    /**
+     * Updates the state gauges.
+     *
+     * @param open   the number of open auctions.
+     * @param timers the number of scheduled timers.
+     */
+    public void onStateChanged(final int open, final long timers)
     {
         openAuctions.set(open);
         wheelTimers.set(timers);
@@ -137,7 +177,7 @@ final class NodeMetrics implements AutoCloseable
      * Reads a counter when metrics are scraped.
      *
      * @param wantedTypeId of the counter.
-     * @param wantedKey the first int of the counter's key, or {@link #ANY_KEY}.
+     * @param wantedKey    the first int of the counter's key, or {@link #ANY_KEY}.
      * @return the counter's value, or NaN if it is not available.
      */
     private double readCounter(final int wantedTypeId, final int wantedKey)

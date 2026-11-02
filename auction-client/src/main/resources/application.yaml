@@ -10,7 +10,30 @@ auction:
   aeron-dir: ${AERON_DIR}
   ingress-endpoints: ${INGRESS_ENDPOINTS}
   egress-host: ${EGRESS_HOST}
+  read-endpoints: ${READ_ENDPOINTS}
+  read-reply-endpoint: ${READ_REPLY_ENDPOINT}
+  reads-through-log: ${READS_THROUGH_LOG:false} # true sends reads through the replicated log, as they used to
   rpc-timeout-ms: ${RPC_TIMEOUT_MS:2000}
+  rpc:
+    queue-capacity: 4096
+    max-sends-per-cycle: 64
+    keep-alive-interval-ms: 1000
+    reconnect-delay-ms: 500
+    timer-tick-resolution-ms: 16 # must be a power of 2
+    timer-ticks-per-wheel: 256 # must be a power of 2
+    no-correlation: -1 # marks a missing correlation ID, and must be below 1 because real IDs start at 1
+    message-timeout-ns: 5000000000
+    idle:
+      max-spins: 100
+      max-yields: 10
+      min-park-ns: 1000
+      max-park-ns: 1000000
+  read-channel:
+    fragment-limit: 16
+    hello-while-waiting-ms: 250
+    hello-while-ready-ms: 1000 # keep this well below the node's auction.read-channel.client-timeout-ms
+    ready-timeout-ms: 3000
+    request-term-length: 1m
 
 management:
   endpoints:

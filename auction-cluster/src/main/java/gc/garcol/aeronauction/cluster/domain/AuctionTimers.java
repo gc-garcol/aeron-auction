@@ -1,4 +1,4 @@
-package gc.garcol.aeronauction.cluster;
+package gc.garcol.aeronauction.cluster.domain;
 
 import org.agrona.DeadlineTimerWheel;
 import org.agrona.collections.Long2LongHashMap;
@@ -13,11 +13,11 @@ import java.util.function.LongConsumer;
  * <p>{@link #advance} fires exactly the timers with {@code deadline <= now}, in auction ID order, regardless of the
  * wheel's internal tick. Replicas therefore agree even if one rebuilt its wheel from a snapshot at a different time.
  */
-final class AuctionTimers
+public final class AuctionTimers
 {
     /** Both must be powers of 2. Deadlines beyond one revolution (about 65s) simply wait in their spoke. */
-    static final long RESOLUTION_MS = 128;
-    static final int TICKS_PER_WHEEL = 512;
+    public static final long RESOLUTION_MS = 128;
+    private static final int TICKS_PER_WHEEL = 512;
 
     private static final long NOT_FOUND = -1;
 
@@ -26,7 +26,14 @@ final class AuctionTimers
     private final Long2LongHashMap timerToAuction = new Long2LongHashMap(NOT_FOUND);
     private final LongArrayList expired = new LongArrayList();
 
-    void schedule(final long auctionId, final long deadline, final long timestamp)
+    /**
+     * Schedules an auction's deadline.
+     *
+     * @param auctionId of the auction.
+     * @param deadline  in cluster time, in milliseconds.
+     * @param timestamp of the current log event.
+     */
+    public void schedule(final long auctionId, final long deadline, final long timestamp)
     {
         if (wheel.timerCount() == 0)
         {
@@ -35,7 +42,13 @@ final class AuctionTimers
         timerToAuction.put(wheel.scheduleTimer(deadline), auctionId);
     }
 
-    void advance(final long now, final LongConsumer onExpired)
+    /**
+     * Fires every timer whose deadline has passed, in auction ID order.
+     *
+     * @param now       the timestamp of the current log event.
+     * @param onExpired called with the ID of each expired auction.
+     */
+    public void advance(final long now, final LongConsumer onExpired)
     {
         if (wheel.timerCount() == 0)
         {
@@ -56,7 +69,12 @@ final class AuctionTimers
         }
     }
 
-    long timerCount()
+    /**
+     * Counts the scheduled timers.
+     *
+     * @return the number of scheduled timers.
+     */
+    public long timerCount()
     {
         return wheel.timerCount();
     }

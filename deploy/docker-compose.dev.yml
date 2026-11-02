@@ -18,6 +18,7 @@ services:
     environment:
       SPRING_PROFILES_ACTIVE: dev
       INGRESS_ENDPOINTS: "0=node0:9002"
+      READ_ENDPOINTS: "0=node0:9006"
     depends_on: !override
       - node0
 

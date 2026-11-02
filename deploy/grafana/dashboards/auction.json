@@ -645,6 +645,39 @@
           "legendFormat": "reconnects"
         }
       ]
+    },
+    {
+      "id": 20,
+      "title": "Reads per second by route",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 38,
+        "w": 8,
+        "h": 7
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops"
+        },
+        "overrides": []
+      },
+      "description": "read_channel adds nothing to the log. log is the fallback, such as during a failover.",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (route) (rate(auction_rpc_reads_total[1m]))",
+          "legendFormat": "{{route}}"
+        }
+      ]
     }
   ]
 }

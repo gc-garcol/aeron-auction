@@ -1,0 +1,809 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta content="width=device-width, initial-scale=1.0" name="viewport">
+    <title>Aeron Auction Architecture</title>
+    <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500;600&display=swap"
+          rel="stylesheet">
+    <style>
+        *, *::before, *::after {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        :root {
+            --color-paper: #f5f5f5;
+            --color-ink: #2d3142;
+            --color-muted: #4f5d75;
+            --color-accent: #bf4520;
+            --color-link: #2e5aa8;
+            --font-sans: 'Geist', system-ui, sans-serif;
+            --font-serif: 'Instrument Serif', serif;
+            --font-mono: 'Geist Mono', ui-monospace, monospace;
+        }
+
+        body {
+            font-family: var(--font-sans);
+            background: var(--color-paper);
+            color: var(--color-ink);
+            min-height: 100vh;
+            display: flex;
+            align-items: flex-start;
+            justify-content: center;
+            padding: 3rem 2rem;
+        }
+
+        .frame {
+            max-width: 1200px;
+            width: 100%;
+        }
+
+        .diagram-container {
+            width: 100%;
+            overflow-x: auto;
+        }
+
+        .eyebrow {
+            font-family: var(--font-mono);
+            font-size: 0.66rem;
+            font-weight: 500;
+            letter-spacing: 0.18em;
+            text-transform: uppercase;
+            color: var(--color-muted);
+            margin-bottom: 0.5rem;
+        }
+
+        h1 {
+            font-family: var(--font-serif);
+            font-size: clamp(1.5rem, 2.4vw + 0.75rem, 2rem);
+            font-weight: 400;
+            letter-spacing: -0.02em;
+            line-height: 1.15;
+            color: var(--color-ink);
+            margin-bottom: 1.5rem;
+        }
+
+        svg {
+            width: 100%;
+            min-width: 1200px;
+            display: block;
+        }
+
+        .docs {
+            margin-top: 2.5rem;
+        }
+
+        .docs section {
+            margin-top: 2.5rem;
+        }
+
+        .docs h2 {
+            font-family: var(--font-serif);
+            font-size: 1.5rem;
+            font-weight: 400;
+            letter-spacing: -0.01em;
+            line-height: 1.2;
+            margin-bottom: 0.5rem;
+        }
+
+        .docs p {
+            max-width: 72ch;
+            font-size: 0.9375rem;
+            line-height: 1.55;
+            color: var(--color-muted);
+            margin-bottom: 1rem;
+        }
+
+        .table-wrap {
+            overflow-x: auto;
+            background: #ffffff;
+            border: 1px solid rgba(45, 49, 66, 0.14);
+            border-radius: 6px;
+        }
+
+        table {
+            width: 100%;
+            min-width: 760px;
+            border-collapse: collapse;
+            font-size: 0.8125rem;
+            line-height: 1.5;
+        }
+
+        th, td {
+            padding: 0.625rem 0.875rem;
+            text-align: left;
+            vertical-align: top;
+            border-top: 1px solid rgba(45, 49, 66, 0.10);
+        }
+
+        thead th {
+            border-top: 0;
+            font-family: var(--font-mono);
+            font-size: 0.6875rem;
+            font-weight: 500;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: var(--color-muted);
+        }
+
+        tbody th {
+            font-weight: 600;
+            white-space: nowrap;
+        }
+
+        td {
+            color: var(--color-ink);
+        }
+
+        .step {
+            display: inline-block;
+            min-width: 2rem;
+            padding: 0 0.3rem;
+            border: 1px solid currentColor;
+            border-radius: 2px;
+            font-family: var(--font-mono);
+            font-size: 0.6875rem;
+            font-weight: 500;
+            text-align: center;
+        }
+
+        .step.read {
+            color: var(--color-link);
+        }
+
+        .step.setup {
+            color: var(--color-muted);
+        }
+
+        td.lib {
+            width: 30%;
+            color: var(--color-muted);
+        }
+
+        code {
+            font-family: var(--font-mono);
+            font-size: 0.92em;
+            overflow-wrap: anywhere;
+        }
+
+        @media print {
+            .diagram-container {
+                overflow-x: visible;
+            }
+
+            svg {
+                min-width: 0;
+            }
+        }
+    </style>
+</head>
+<body>
+<div class="frame">
+    <p class="eyebrow">Architecture · Aeron Auction</p>
+    <h1>Writes go through the log. Reads go straight to the leader.</h1>
+
+    <div class="diagram-container">
+        <svg aria-labelledby="aeron-auction-architecture-title aeron-auction-architecture-desc" role="img" viewBox="0 0 1200 576"
+             xmlns="http://www.w3.org/2000/svg">
+            <title id="aeron-auction-architecture-title">Aeron Auction high-level architecture</title>
+            <desc id="aeron-auction-architecture-desc">HTTP requests reach a Spring Boot client whose RPC agent sends
+                writes through the replicated cluster log and sends reads over a separate Aeron stream to the leader,
+                with both paths meeting at the auction state on the leader node.
+            </desc>
+            <defs>
+                <marker id="arrow" markerHeight="6" markerWidth="8" orient="auto" refX="7" refY="3">
+                    <polygon fill="#4f5d75" points="0 0, 8 3, 0 6"/>
+                </marker>
+                <marker id="arrow-ink" markerHeight="6" markerWidth="8" orient="auto" refX="7" refY="3">
+                    <polygon fill="#2d3142" points="0 0, 8 3, 0 6"/>
+                </marker>
+                <marker id="arrow-link" markerHeight="6" markerWidth="8" orient="auto" refX="7" refY="3">
+                    <polygon fill="#2e5aa8" points="0 0, 8 3, 0 6"/>
+                </marker>
+            </defs>
+
+            <rect fill="#f5f5f5" height="100%" width="100%"/>
+
+            <!-- Zones -->
+            <rect fill="rgba(45,49,66,0.02)" height="484" rx="8" stroke="rgba(45,49,66,0.16)" stroke-width="0.8" width="388" x="156"
+                  y="24"/>
+            <rect fill="#f1f1f2" height="14" rx="2" width="156" x="172" y="28"/>
+            <text fill="#4f5d75" font-family="'Geist Mono', ui-monospace, monospace" font-size="9" letter-spacing="0.14em" text-anchor="middle"
+                  x="250" y="38">AUCTION-CLIENT
+            </text>
+
+            <rect fill="rgba(45,49,66,0.02)" height="484" rx="8" stroke="rgba(45,49,66,0.16)" stroke-width="0.8" width="280" x="664"
+                  y="24"/>
+            <rect fill="#f1f1f2" height="14" rx="2" width="232" x="688" y="28"/>
+            <text fill="#4f5d75" font-family="'Geist Mono', ui-monospace, monospace" font-size="9" letter-spacing="0.14em" text-anchor="middle"
+                  x="804" y="38">AUCTION-CLUSTER · LEADER NODE
+            </text>
+
+            <!-- Shared entry path -->
+            <line marker-end="url(#arrow)" stroke="#4f5d75" stroke-width="1.2" x1="120" x2="176" y1="270" y2="270"/>
+            <line marker-end="url(#arrow)" stroke="#4f5d75" stroke-width="1.2" x1="304" x2="364" y1="270" y2="270"/>
+
+            <!-- Write channel -->
+            <line marker-end="url(#arrow-ink)" stroke="#2d3142" stroke-width="1.4" x1="524" x2="688" y1="80" y2="80"/>
+            <line marker-end="url(#arrow-ink)" stroke="#2d3142" stroke-width="1.4" x1="928" x2="1040" y1="104"
+                  y2="104"/>
+            <line marker-end="url(#arrow-ink)" stroke="#2d3142" stroke-width="1.4" x1="808" x2="808" y1="152" y2="220"/>
+            <line marker-end="url(#arrow-ink)" stroke="#2d3142" stroke-width="1.4" x1="688" x2="524" y1="270" y2="270"/>
+
+            <!-- Read channel -->
+            <line marker-end="url(#arrow-link)" stroke="#2e5aa8" stroke-width="1.4" x1="524" x2="688" y1="416"
+                  y2="416"/>
+            <line marker-end="url(#arrow-link)" stroke="#2e5aa8" stroke-width="1.4" x1="808" x2="808" y1="388"
+                  y2="320"/>
+            <line marker-end="url(#arrow-link)" stroke="#2e5aa8" stroke-width="1.4" x1="688" x2="524" y1="464"
+                  y2="464"/>
+
+            <!-- Read fallback, through the log -->
+            <line marker-end="url(#arrow-link)" stroke="#2e5aa8" stroke-dasharray="5,4" stroke-width="1.2" x1="524" x2="688" y1="128"
+                  y2="128"/>
+
+            <!-- Arrow labels -->
+            <g font-family="'Geist Mono', ui-monospace, monospace" font-size="8" letter-spacing="0.06em"
+               text-anchor="middle">
+                <rect fill="#f5f5f5" height="12" rx="2" width="26" x="125" y="250"/>
+                <text fill="#4f5d75" x="138" y="259">HTTP</text>
+                <rect fill="#f5f5f5" height="12" rx="2" width="44" x="312" y="250"/>
+                <text fill="#4f5d75" x="334" y="259">ENQUEUE</text>
+
+                <rect fill="#f5f5f5" height="12" rx="2" width="64" x="572" y="60"/>
+                <text fill="#2d3142" x="604" y="69">W1 COMMAND</text>
+                <rect fill="#f5f5f5" height="12" rx="2" width="76" x="954" y="84"/>
+                <text fill="#2d3142" x="992" y="93">W2 REPLICATE</text>
+                <rect fill="#f5f5f5" height="12" rx="2" width="48" x="580" y="250"/>
+                <text fill="#2d3142" x="604" y="259">W4 REPLY</text>
+
+                <rect fill="#f5f5f5" height="12" rx="2" width="72" x="568" y="136"/>
+                <text fill="#2e5aa8" x="604" y="145">READ FALLBACK</text>
+                <rect fill="#f5f5f5" height="12" rx="2" width="64" x="572" y="396"/>
+                <text fill="#2e5aa8" x="604" y="405">R1 REQUEST</text>
+                <rect fill="#f5f5f5" height="12" rx="2" width="48" x="580" y="472"/>
+                <text fill="#2e5aa8" x="604" y="481">R3 REPLY</text>
+            </g>
+            <g font-family="'Geist Mono', ui-monospace, monospace" font-size="8" letter-spacing="0.06em"
+               text-anchor="start">
+                <rect fill="#f1f1f2" height="12" rx="2" width="56" x="816" y="180"/>
+                <text fill="#2d3142" x="820" y="189">W3 APPLY</text>
+                <rect fill="#f1f1f2" height="12" rx="2" width="76" x="816" y="348"/>
+                <text fill="#2e5aa8" x="820" y="357">R2 READ BOOK</text>
+            </g>
+
+            <!-- Caller -->
+            <rect fill="#f5f5f5" height="100" rx="6" width="96" x="24" y="220"/>
+            <rect fill="#ffffff" height="100" rx="6" stroke="rgba(45,49,66,0.40)" stroke-width="1" width="96" x="24"
+                  y="220"/>
+            <text fill="#2d3142" font-family="'Geist', system-ui, sans-serif" font-size="12" font-weight="600" text-anchor="middle"
+                  x="72" y="266">Browser
+            </text>
+            <text fill="#4f5d75" font-family="'Geist Mono', ui-monospace, monospace" font-size="9" text-anchor="middle" x="72"
+                  y="284">web UI, curl
+            </text>
+
+            <!-- REST API -->
+            <rect fill="#f5f5f5" height="100" rx="6" width="128" x="176" y="220"/>
+            <rect fill="#ffffff" height="100" rx="6" stroke="#2d3142" stroke-width="1" width="128" x="176" y="220"/>
+            <text fill="#2d3142" font-family="'Geist', system-ui, sans-serif" font-size="12" font-weight="600" text-anchor="middle"
+                  x="240" y="258">REST API
+            </text>
+            <text fill="#4f5d75" font-family="'Geist Mono', ui-monospace, monospace" font-size="9" text-anchor="middle" x="240"
+                  y="276">AuctionController
+            </text>
+            <text fill="#4f5d75" font-family="'Geist Mono', ui-monospace, monospace" font-size="9" text-anchor="middle" x="240"
+                  y="290">Spring Boot :8080
+            </text>
+
+            <!-- RPC agent, with its two outbound channels -->
+            <rect fill="#f5f5f5" height="428" rx="6" width="160" x="364" y="56"/>
+            <rect fill="#ffffff" height="428" rx="6" stroke="#2d3142" stroke-width="1" width="160" x="364" y="56"/>
+            <text fill="#2d3142" font-family="'Geist', system-ui, sans-serif" font-size="11" font-weight="600" text-anchor="middle"
+                  x="444" y="96">AeronCluster session
+            </text>
+            <text fill="#4f5d75" font-family="'Geist Mono', ui-monospace, monospace" font-size="9" text-anchor="middle" x="444"
+                  y="112">ingress, egress
+            </text>
+            <line stroke="rgba(45,49,66,0.16)" stroke-width="0.8" x1="380" x2="508" y1="168" y2="168"/>
+            <text fill="#2d3142" font-family="'Geist', system-ui, sans-serif" font-size="12" font-weight="600" text-anchor="middle"
+                  x="444" y="258">ClusterRpcAgent
+            </text>
+            <text fill="#4f5d75" font-family="'Geist Mono', ui-monospace, monospace" font-size="9" text-anchor="middle" x="444"
+                  y="276">one thread owns all I/O
+            </text>
+            <text fill="#4f5d75" font-family="'Geist Mono', ui-monospace, monospace" font-size="9" text-anchor="middle" x="444"
+                  y="290">timeouts, reconnects
+            </text>
+            <line stroke="rgba(45,49,66,0.16)" stroke-width="0.8" x1="380" x2="508" y1="372" y2="372"/>
+            <text fill="#2d3142" font-family="'Geist', system-ui, sans-serif" font-size="11" font-weight="600" text-anchor="middle"
+                  x="444" y="432">ClusterReadChannel
+            </text>
+            <text fill="#4f5d75" font-family="'Geist Mono', ui-monospace, monospace" font-size="9" text-anchor="middle" x="444"
+                  y="448">replies on :9007
+            </text>
+
+            <!-- Consensus -->
+            <rect fill="#f5f5f5" height="96" rx="6" width="240" x="688" y="56"/>
+            <rect fill="#ffffff" height="96" rx="6" stroke="#2d3142" stroke-width="1" width="240" x="688" y="56"/>
+            <text fill="#2d3142" font-family="'Geist', system-ui, sans-serif" font-size="12" font-weight="600" text-anchor="middle"
+                  x="808" y="92">Consensus Module + Archive
+            </text>
+            <text fill="#4f5d75" font-family="'Geist Mono', ui-monospace, monospace" font-size="9" text-anchor="middle" x="808"
+                  y="110">ingress :9002, orders every command
+            </text>
+            <text fill="#4f5d75" font-family="'Geist Mono', ui-monospace, monospace" font-size="9" text-anchor="middle" x="808"
+                  y="124">log recorded to disk, commits at quorum
+            </text>
+
+            <!-- State: the focal node where both channels meet -->
+            <rect fill="#f5f5f5" height="100" rx="6" width="240" x="688" y="220"/>
+            <rect fill="rgba(191,69,32,0.08)" height="100" rx="6" stroke="#bf4520" stroke-width="1.2" width="240" x="688"
+                  y="220"/>
+            <text fill="#2d3142" font-family="'Geist', system-ui, sans-serif" font-size="12" font-weight="600" text-anchor="middle"
+                  x="808" y="258">AuctionService + AuctionBook
+            </text>
+            <text fill="#4f5d75" font-family="'Geist Mono', ui-monospace, monospace" font-size="9" text-anchor="middle" x="808"
+                  y="276">single-threaded state machine
+            </text>
+            <text fill="#4f5d75" font-family="'Geist Mono', ui-monospace, monospace" font-size="9" text-anchor="middle" x="808"
+                  y="290">only log callbacks change state
+            </text>
+
+            <!-- Read channel server -->
+            <rect fill="#f5f5f5" height="96" rx="6" width="240" x="688" y="388"/>
+            <rect fill="#ffffff" height="96" rx="6" stroke="#2e5aa8" stroke-width="1" width="240" x="688" y="388"/>
+            <text fill="#2d3142" font-family="'Geist', system-ui, sans-serif" font-size="12" font-weight="600" text-anchor="middle"
+                  x="808" y="424">ReadChannel
+            </text>
+            <text fill="#4f5d75" font-family="'Geist Mono', ui-monospace, monospace" font-size="9" text-anchor="middle" x="808"
+                  y="442">:9006, only the leader answers
+            </text>
+            <text fill="#4f5d75" font-family="'Geist Mono', ui-monospace, monospace" font-size="9" text-anchor="middle" x="808"
+                  y="456">runs on the service thread, no locks
+            </text>
+
+            <!-- Followers -->
+            <rect fill="#f5f5f5" height="96" rx="6" width="136" x="1040" y="56"/>
+            <rect fill="#ffffff" height="96" rx="6" stroke="#2d3142" stroke-width="1" width="136" x="1040" y="56"/>
+            <text fill="#2d3142" font-family="'Geist', system-ui, sans-serif" font-size="12" font-weight="600" text-anchor="middle"
+                  x="1108" y="92">Follower nodes ×2
+            </text>
+            <text fill="#4f5d75" font-family="'Geist Mono', ui-monospace, monospace" font-size="9" text-anchor="middle" x="1108"
+                  y="110">same log, same state
+            </text>
+            <text fill="#4f5d75" font-family="'Geist Mono', ui-monospace, monospace" font-size="9" text-anchor="middle" x="1108"
+                  y="124">one takes over on loss
+            </text>
+
+            <!-- Legend -->
+            <line stroke="rgba(45,49,66,0.10)" stroke-width="0.8" x1="24" x2="1176" y1="532" y2="532"/>
+            <g font-family="'Geist Mono', ui-monospace, monospace" font-size="9">
+                <text fill="#4f5d75" font-size="8" letter-spacing="0.14em" x="24" y="556">LEGEND</text>
+                <line marker-end="url(#arrow)" stroke="#4f5d75" stroke-width="1.2" x1="104" x2="136" y1="553" y2="553"/>
+                <text fill="#4f5d75" x="144" y="556">Both channels</text>
+                <line marker-end="url(#arrow-ink)" stroke="#2d3142" stroke-width="1.4" x1="264" x2="296" y1="553"
+                      y2="553"/>
+                <text fill="#4f5d75" x="304" y="556">Write channel (W1 to W4)</text>
+                <line marker-end="url(#arrow-link)" stroke="#2e5aa8" stroke-width="1.4" x1="484" x2="516" y1="553"
+                      y2="553"/>
+                <text fill="#4f5d75" x="524" y="556">Read channel (R1 to R3)</text>
+                <line marker-end="url(#arrow-link)" stroke="#2e5aa8" stroke-dasharray="5,4" stroke-width="1.2" x1="700" x2="732" y1="553"
+                      y2="553"/>
+                <text fill="#4f5d75" x="740" y="556">Read through the log when the channel isn't ready</text>
+                <rect fill="rgba(191,69,32,0.08)" height="12" rx="2" stroke="#bf4520" stroke-width="1" width="16" x="1056"
+                      y="547"/>
+                <text fill="#4f5d75" x="1080" y="556">Shared state</text>
+            </g>
+        </svg>
+    </div>
+
+    <div class="docs">
+        <section id="compare">
+            <h2>The two sides at a glance</h2>
+            <p>Both sides start at the same REST API and share one agent thread, one correlation ID sequence and one
+                timeout. They split when the agent sends the request.</p>
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                    <tr>
+                        <th scope="col"></th>
+                        <th scope="col">Write side</th>
+                        <th scope="col">Read side</th>
+                    </tr>
+                    </thead>
+                    <tbody>
+                    <tr>
+                        <th scope="row">Requests</th>
+                        <td><code>POST /auctions</code>, <code>POST /auctions/{id}/bids</code></td>
+                        <td><code>GET /auctions/{id}</code>, <code>GET /auctions</code></td>
+                    </tr>
+                    <tr>
+                        <th scope="row">Transport</th>
+                        <td>Aeron Cluster ingress and egress, through an <code>AeronCluster</code> session</td>
+                        <td>Plain Aeron UDP publications and subscriptions: stream <code>1101</code> for requests,
+                            <code>1102</code> for replies
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row">Added to the log</th>
+                        <td>Yes, and recorded to disk by Aeron Archive</td>
+                        <td>No, unless the read falls back to the log</td>
+                    </tr>
+                    <tr>
+                        <th scope="row">Runs on</th>
+                        <td>All 3 nodes, in the same order</td>
+                        <td>The leader answers. Followers consume the request and ignore it</td>
+                    </tr>
+                    <tr>
+                        <th scope="row">Entry point on the node</th>
+                        <td><code>AuctionService.onSessionMessage</code></td>
+                        <td><code>AuctionService.doBackgroundWork</code>, which calls <code>ReadChannel.poll</code></td>
+                    </tr>
+                    <tr>
+                        <th scope="row">Time source</th>
+                        <td>The timestamp of the log entry</td>
+                        <td><code>cluster.time()</code>, the time of the last log event</td>
+                    </tr>
+                    <tr>
+                        <th scope="row">Consistency</th>
+                        <td>Committed by a majority before it's applied</td>
+                        <td>Committed state, which can be briefly stale after a leader change</td>
+                    </tr>
+                    <tr>
+                        <th scope="row">Back-pressure</th>
+                        <td>The agent fails the request with <code>503</code>. The service retries a reply up to 1,000
+                            times, then drops it
+                        </td>
+                        <td>The leader offers a reply once. If that fails, it drops the reply and the client times out
+                        </td>
+                    </tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <section id="write">
+            <h2>Write side</h2>
+            <p>Only log callbacks change state, and they take time only from the log. That's why every node reaches the
+                same winner, and why an auction closes correctly after the leader dies.</p>
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                    <tr>
+                        <th scope="col">Step</th>
+                        <th scope="col">What happens</th>
+                        <th scope="col">Library and API</th>
+                    </tr>
+                    </thead>
+                    <tbody>
+                    <tr>
+                        <th scope="row"><span class="step setup">HTTP</span></th>
+                        <td><code>AuctionController</code> builds a <code>Command</code> and passes it to <code>ClusterCommandGateway</code>,
+                            which calls <code>ClusterRpcAgent.submit</code>. That queues the request and returns a
+                            future. The HTTP thread never touches Aeron. If the queue of 4,096 is full, the caller gets
+                            <code>503</code>.
+                        </td>
+                        <td class="lib">Spring MVC with <code>CompletableFuture</code>; Agrona <code>ManyToOneConcurrentArrayQueue</code>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><span class="step">W1</span></th>
+                        <td>The agent thread takes up to 64 requests per cycle, assigns a correlation ID, encodes the
+                            command and offers it to the leader on <code>:9002</code>. It then starts a timeout (<code>RPC_TIMEOUT_MS</code>,
+                            2 seconds by default). A failed offer returns <code>503</code>.
+                        </td>
+                        <td class="lib">Aeron Cluster <code>AeronCluster.offer</code>; SBE codecs; Agrona <code>AgentRunner</code>,
+                            <code>BackoffIdleStrategy</code>, <code>DeadlineTimerWheel</code>,
+                            <code>Long2ObjectHashMap</code></td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><span class="step">W2</span></th>
+                        <td>The leader's consensus module gives the command its place and timestamp in the log, and
+                            sends it to the followers. Each node records the log to disk. The entry commits once a
+                            majority, 2 of 3 nodes, has it.
+                        </td>
+                        <td class="lib">Aeron Cluster <code>ConsensusModule</code>; Aeron Archive; Aeron Transport
+                            (<code>aeron:udp?term-length=16m</code>)
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><span class="step">W3</span></th>
+                        <td>Each node's <code>AuctionService</code> receives the committed command, decodes it and calls
+                            <code>AuctionBook.create</code> or <code>placeBid</code> with the log timestamp. A malformed
+                            message is ignored. A new auction also joins <code>AuctionTimers</code>.
+                        </td>
+                        <td class="lib">Aeron Cluster <code>ClusteredService</code>,
+                            <code>ClusteredServiceContainer</code>; SBE codecs
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><span class="step">W4</span></th>
+                        <td>The service sends the reply through the session, and only the leader's reply goes out. On
+                            the client, <code>pollEgress</code> delivers it to <code>onReply</code>, which matches the
+                            correlation ID, cancels the timeout and completes the future.
+                            <code>ClusterCommandGateway</code> then maps the status to an HTTP response.
+                        </td>
+                        <td class="lib">Aeron Cluster <code>ClientSession.offer</code>, <code>EgressListener</code>; SBE
+                            codecs
+                        </td>
+                    </tr>
+                    </tbody>
+                </table>
+            </div>
+            <p style="margin-top: 1rem;"><strong>Closing an auction.</strong> One replicated timer ticks every 128 ms
+                while any auction is open. Each tick advances an Agrona timer wheel using log time and closes expired
+                auctions in ID order, so all nodes agree. The timer wheel isn't saved in a snapshot. It's rebuilt from
+                the open auctions when a snapshot loads.</p>
+            <p><strong>Recovery.</strong> <code>onTakeSnapshot</code> writes the next auction ID, the last timestamp and
+                every auction, and a restarting node loads that snapshot. Followers treat the leader as lost after 3
+                seconds without a heartbeat. The client keeps its session alive every second and tries to reconnect
+                every 500 ms.</p>
+        </section>
+
+        <section id="read">
+            <h2>Read side</h2>
+            <p>Reads used to add an entry to the log for every request, which also meant writing to disk on all 3 nodes.
+                Now they go directly to the leader. They run on the service thread, so they can read
+                <code>AuctionBook</code> without locks, and that's also why this code must never block, retry or change
+                state.</p>
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                    <tr>
+                        <th scope="col">Step</th>
+                        <th scope="col">What happens</th>
+                        <th scope="col">Library and API</th>
+                    </tr>
+                    </thead>
+                    <tbody>
+                    <tr>
+                        <th scope="row"><span class="step setup">Setup</span></th>
+                        <td><code>ClusterReadChannel</code> sends <code>ReadHello</code> with its reply address (<code>:9007</code>)
+                            to the node that the session reports as leader. It repeats every 250 ms until acknowledged,
+                            then every second, and at once when the leader changes. <code>ReadChannel</code> opens a
+                            reply publication, and only the leader answers with <code>ReadReady</code>. A node accepts
+                            up to 32 clients and drops one after 10 seconds without a hello.
+                        </td>
+                        <td class="lib">Aeron Transport <code>asyncAddExclusivePublication</code>,
+                            <code>ChannelUri</code>; Agrona <code>Int2ObjectHashMap</code></td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><span class="step read">R1</span></th>
+                        <td>The agent encodes a read as usual and offers it to the leader's <code>:9006</code>, but only
+                            if that leader acknowledged within the last 3 seconds. It uses the same pending map and
+                            timeout as a write. Otherwise the read goes through the log (see Fallback below).
+                        </td>
+                        <td class="lib">Aeron Transport <code>ExclusivePublication.offer</code>, with a 1 MB sparse
+                            term; SBE codecs
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><span class="step read">R2</span></th>
+                        <td><code>ReadChannel.poll</code> handles up to 16 fragments per call and runs <code>AuctionBook.get</code>
+                            or <code>list</code>. An auction past its deadline reads as closed, even before the tick has
+                            processed it. Write commands and malformed messages are counted and ignored. The class has
+                            its own codec and buffer, because Aeron can call it partway through a service callback.
+                        </td>
+                        <td class="lib">Aeron Cluster <code>ClusteredService.doBackgroundWork</code>; Aeron Transport
+                            <code>Subscription.poll</code>; Agrona <code>ExpandableArrayBuffer</code></td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><span class="step read">R3</span></th>
+                        <td>The leader offers the reply once. On the client, a fragment assembler rebuilds it, because a
+                            large page can span several fragments, and the same <code>onReply</code> used by writes
+                            completes the future.
+                        </td>
+                        <td class="lib">Aeron Transport <code>FragmentAssembler</code>, <code>Subscription</code>; SBE
+                            codecs
+                        </td>
+                    </tr>
+                    </tbody>
+                </table>
+            </div>
+            <p style="margin-top: 1rem;"><strong>Fallback.</strong> A read goes through the log if the read channel
+                isn't ready or its offer fails, such as during a failover, and it's then handled in <code>onSessionMessage</code>.
+                Setting <code>READS_THROUGH_LOG=true</code> sends every read that way. The
+                <code>auction.rpc.reads</code> metric counts each route with its <code>route</code> tag.</p>
+        </section>
+
+        <section id="failures">
+            <h2>What a caller sees on failure</h2>
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                    <tr>
+                        <th scope="col">Status</th>
+                        <th scope="col">Cause</th>
+                        <th scope="col">Did the command apply?</th>
+                    </tr>
+                    </thead>
+                    <tbody>
+                    <tr>
+                        <th scope="row"><code>400</code> <code>404</code> <code>409</code></th>
+                        <td>The state machine rejected it: invalid input, unknown auction, auction closed, bid too low,
+                            or the seller bidding
+                        </td>
+                        <td>It was processed, and it changed nothing</td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><code>503</code></th>
+                        <td>Queue full, back-pressure, or no session</td>
+                        <td>No, it was never sent</td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><code>503</code></th>
+                        <td>The session was lost while waiting for a reply</td>
+                        <td>Unknown. A write may have applied, so check with <code>GET</code> before retrying</td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><code>504</code></th>
+                        <td>No reply within the timeout, including a reply the read channel dropped</td>
+                        <td>Unknown for a write, so check with <code>GET</code>. A read changes nothing and is safe to
+                            repeat
+                        </td>
+                    </tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <section id="libraries">
+            <h2>Libraries</h2>
+            <p>Versions come from the Maven POMs and the Compose file. Aeron and SBE make up both channels, and the rest
+                supports them.</p>
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                    <tr>
+                        <th scope="col">Library</th>
+                        <th scope="col">Version</th>
+                        <th scope="col">Modules</th>
+                        <th scope="col">Used for</th>
+                    </tr>
+                    </thead>
+                    <tbody>
+                    <tr>
+                        <th scope="row">Aeron Transport</th>
+                        <td><code>aeron-all 1.54.0</code></td>
+                        <td>All</td>
+                        <td>UDP messaging and the media driver. The read channel uses it directly</td>
+                    </tr>
+                    <tr>
+                        <th scope="row">Aeron Cluster</th>
+                        <td>Part of <code>aeron-all</code></td>
+                        <td>client, cluster</td>
+                        <td>The write side: Raft-style leader election, the replicated log, sessions and replicated
+                            timers
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row">Aeron Archive</th>
+                        <td>Part of <code>aeron-all</code></td>
+                        <td>cluster</td>
+                        <td>Records the log and snapshots to disk, and replays them for recovery and catch-up</td>
+                    </tr>
+                    <tr>
+                        <th scope="row">Agrona</th>
+                        <td>Bundled in <code>aeron-all</code></td>
+                        <td>All</td>
+                        <td>The agent thread, the request queue, timer wheels, buffers and primitive collections</td>
+                    </tr>
+                    <tr>
+                        <th scope="row">SBE</th>
+                        <td><code>sbe-tool 1.41.0</code></td>
+                        <td>protocol</td>
+                        <td>Generates binary codecs for all messages and snapshot records from
+                            <code>auction-schema.xml</code>. It runs at build time, and the generated code only needs
+                            Agrona
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row">Spring Boot</th>
+                        <td><code>4.1.2</code></td>
+                        <td>client, cluster</td>
+                        <td>REST API and app startup on the client. On each node, it starts the cluster and serves
+                            health and metrics on <code>:9100</code></td>
+                    </tr>
+                    <tr>
+                        <th scope="row">Micrometer Prometheus</th>
+                        <td>Managed by Spring Boot</td>
+                        <td>client, cluster</td>
+                        <td>RPC timings, read routes, read channel outcomes and node metrics</td>
+                    </tr>
+                    <tr>
+                        <th scope="row">springdoc-openapi</th>
+                        <td><code>3.2.0</code></td>
+                        <td>client</td>
+                        <td>Swagger UI and the OpenAPI document</td>
+                    </tr>
+                    <tr>
+                        <th scope="row">Vue</th>
+                        <td><code>3.5.44</code></td>
+                        <td>client</td>
+                        <td>The web UI, served from a WebJar</td>
+                    </tr>
+                    <tr>
+                        <th scope="row">Lombok</th>
+                        <td>Managed by Spring Boot</td>
+                        <td>client</td>
+                        <td>Generates the agent's <code>isConnected</code> getter</td>
+                    </tr>
+                    <tr>
+                        <th scope="row">Prometheus, Grafana</th>
+                        <td><code>v3.5.0</code>, <code>12.1.0</code></td>
+                        <td>Compose</td>
+                        <td>Metric storage and the Aeron Auction dashboard</td>
+                    </tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <section id="ports">
+            <h2>Ports and settings</h2>
+            <p>These are the values in <code>deploy/docker-compose.yml</code>. The one-node dev profile sets its own.
+            </p>
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                    <tr>
+                        <th scope="col">Port</th>
+                        <th scope="col">Side</th>
+                        <th scope="col">Purpose</th>
+                        <th scope="col">Setting</th>
+                    </tr>
+                    </thead>
+                    <tbody>
+                    <tr>
+                        <th scope="row"><code>8080</code></th>
+                        <td>Both</td>
+                        <td>Client REST API, web UI and metrics</td>
+                        <td><code>SERVER_PORT</code></td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><code>9002</code></th>
+                        <td>Write</td>
+                        <td>Cluster ingress on each node</td>
+                        <td><code>INGRESS_ENDPOINTS</code>, <code>CLUSTER_MEMBERS</code></td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><code>9003</code>, <code>9004</code>, <code>9005</code></th>
+                        <td>Write</td>
+                        <td>Consensus, log and catch-up between nodes</td>
+                        <td><code>CLUSTER_MEMBERS</code></td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><code>8010</code></th>
+                        <td>Write</td>
+                        <td>Archive control on each node</td>
+                        <td><code>CLUSTER_MEMBERS</code></td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><code>9006</code></th>
+                        <td>Read</td>
+                        <td>Read requests on each node</td>
+                        <td><code>READ_ENDPOINT</code>, <code>READ_ENDPOINTS</code></td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><code>9007</code></th>
+                        <td>Read</td>
+                        <td>Read replies on the client</td>
+                        <td><code>READ_REPLY_ENDPOINT</code></td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><code>9100</code></th>
+                        <td>Neither</td>
+                        <td>Node health and metrics</td>
+                        <td><code>SERVER_PORT</code></td>
+                    </tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    </div>
+</div>
+</body>
+</html>

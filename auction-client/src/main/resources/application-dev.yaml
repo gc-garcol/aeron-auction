@@ -4,3 +4,7 @@ auction:
   aeron-dir: ${AERON_DIR:${java.io.tmpdir}/auction-dev/client/aeron}
   ingress-endpoints: ${INGRESS_ENDPOINTS:0=localhost:20001}
   egress-host: ${EGRESS_HOST:localhost}
+  read-endpoints: ${READ_ENDPOINTS:0=localhost:20006}
+  read-reply-endpoint: ${READ_REPLY_ENDPOINT:localhost:20007}
+
+SERVER_PORT: 8081

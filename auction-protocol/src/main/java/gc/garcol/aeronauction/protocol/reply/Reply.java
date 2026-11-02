@@ -1,5 +1,6 @@
-package gc.garcol.aeronauction.protocol;
+package gc.garcol.aeronauction.protocol.reply;
 
+import gc.garcol.aeronauction.protocol.command.Command;
 import gc.garcol.aeronauction.protocol.sbe.ReplyStatus;
 
 /**

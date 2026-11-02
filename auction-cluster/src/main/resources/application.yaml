@@ -11,6 +11,19 @@ auction:
   cluster-members: ${CLUSTER_MEMBERS}
   cluster-dir: ${CLUSTER_DIR}
   aeron-dir: ${AERON_DIR}
+  read-endpoint: ${READ_ENDPOINT}
+  node:
+    log-channel: aeron:udp?term-length=16m # keep this the same on all nodes, and don't change it for an existing log
+    leader-heartbeat-timeout-ms: 3000 # keep this the same on all nodes
+    startup-canvass-timeout-ms: 20000
+    max-reply-attempts: 1000
+  read-channel:
+    fragment-limit: 16
+    max-clients: 32
+    max-channel-length: 256
+    reply-term-length: 1m
+    client-timeout-ms: 10000 # keep this well above the client's auction.read-channel.hello-while-ready-ms
+    sweep-interval-ms: 1000
 
 management:
   endpoints:

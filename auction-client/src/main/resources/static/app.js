@@ -7,7 +7,8 @@ const SUCCESS_MESSAGE_MS = 5000;
 const ENDING_SOON_MS = 10000;
 const MAX_DURATION_SECONDS = 604800;
 const BIDDER_KEY = 'auction.bidderId';
-const PHONE_WIDTH_PX = 760;
+const STACKED_WIDTH_PX = 900;
+const FLASH_MS = 800;
 
 const REASONS = {
   INVALID_INPUT: 'Those values aren\'t valid. Check them and try again.',
@@ -71,6 +72,13 @@ createApp({
       shownPage: 0, // the page on screen, which only changes once its auctions have arrived
       size: 20,
       sizes: [10, 20, 50, 100],
+      statusFilter: 'ALL',
+      order: 'DESC',
+      statusOptions: [
+        { value: 'ALL', label: 'All' },
+        { value: 'OPEN', label: 'Open' },
+        { value: 'CLOSED', label: 'Closed' },
+      ],
       totalItems: 0,
       totalPages: 0,
       loaded: false,
@@ -81,7 +89,10 @@ createApp({
       form: { sellerId: '1', startPrice: '100', minIncrement: '10', durationSeconds: '60' },
       formErrors: {},
       creating: false,
-      createOpen: window.innerWidth > PHONE_WIDTH_PX, // on a phone, auctions should come first
+      panelTab: 'bid',
+      selectedId: null,
+      flashing: {},
+      bidSteps: [0, 1, 5, 10],
       createFields: [
         { key: 'sellerId', label: 'Seller ID' },
         { key: 'startPrice', label: 'Start price' },
@@ -106,6 +117,12 @@ createApp({
     bidderValid() {
       return isPositiveWhole(this.bidder);
     },
+    emptyText() {
+      return { ALL: 'No auctions yet.', OPEN: 'No open auctions.', CLOSED: 'No closed auctions.' }[this.statusFilter];
+    },
+    selected() {
+      return this.auctions.find((auction) => auction.id === this.selectedId) ?? null;
+    },
   },
 
   watch: {
@@ -120,6 +137,7 @@ createApp({
 
   mounted() {
     this.refreshGeneration = 0;
+    this.lastBids = {};
     this.clock = setInterval(() => {
       this.now = Date.now();
     }, 1000);
@@ -130,6 +148,47 @@ createApp({
   methods: {
     digitsOnly(text) {
       return String(text ?? '').replace(/\D/g, '');
+    },
+
+    formatAmount(amount) {
+      return Number(amount).toLocaleString('en-US');
+    },
+    currentPrice(auction) {
+      return this.formatAmount(auction.highestBidderId === null ? auction.startPrice : auction.highestBid);
+    },
+
+    selectAuction(auction) {
+      this.selectedId = auction.id;
+      this.panelTab = 'bid';
+      if (window.innerWidth <= STACKED_WIDTH_PX) {
+        this.$refs.panel.scrollIntoView({ block: 'start' });
+      }
+    },
+    fillBid(auction, steps) {
+      this.drafts[auction.id] = String(this.minimumBid(auction) + steps * auction.minIncrement);
+      this.bidErrors[auction.id] = '';
+    },
+
+    // The selection only moves when its auction has left the list, so a refresh never changes what someone is bidding on.
+    showAuctions(auctions) {
+      this.flashNewBids(auctions);
+      this.auctions = auctions;
+      if (!this.selected) {
+        const next = auctions.find((auction) => !this.isClosed(auction)) ?? auctions[0];
+        this.selectedId = next ? next.id : null;
+      }
+    },
+    flashNewBids(auctions) {
+      for (const { id, highestBid } of auctions) {
+        const known = id in this.lastBids;
+        if (known && this.lastBids[id] !== highestBid) {
+          this.flashing[id] = true;
+          setTimeout(() => {
+            delete this.flashing[id];
+          }, FLASH_MS);
+        }
+        this.lastBids[id] = highestBid;
+      }
     },
 
     isClosed(auction) {
@@ -165,7 +224,7 @@ createApp({
     },
     outcome(auction) {
       return auction.highestBidderId === null ?
-        'Ended with no bids' : `Won by ${auction.highestBidderId} for ${auction.highestBid}`;
+        'Ended with no bids' : `Won by ${auction.highestBidderId} for ${this.formatAmount(auction.highestBid)}`;
     },
     timeLeft(auction) {
       const seconds = Math.ceil((auction.endsAt - this.now) / 1000);
@@ -198,14 +257,15 @@ createApp({
       clearTimeout(this.refreshTimer);
       const generation = ++this.refreshGeneration;
       const path = this.foundId === null ?
-        `auctions?page=${this.page}&size=${this.size}` : `auctions/${this.foundId}`;
+        `auctions?page=${this.page}&size=${this.size}&status=${this.statusFilter}&order=${this.order}` :
+        `auctions/${this.foundId}`;
       const result = await api(path);
       if (generation !== this.refreshGeneration) {
         return; // a newer refresh started, such as after changing page
       }
 
       if (result.ok && this.foundId !== null) {
-        this.auctions = [result.data];
+        this.showAuctions([result.data]);
         this.connection = 'up';
       } else if (result.ok) {
         if (this.page > 0 && this.page >= result.data.totalPages) {
@@ -213,7 +273,7 @@ createApp({
           this.refresh();
           return;
         }
-        this.auctions = result.data.items;
+        this.showAuctions(result.data.items);
         this.shownPage = this.page;
         this.totalItems = result.data.totalItems;
         this.totalPages = result.data.totalPages;
@@ -255,7 +315,9 @@ createApp({
 
       if (result.ok) {
         this.foundId = id;
-        this.auctions = [result.data];
+        this.showAuctions([result.data]);
+        this.selectedId = id;
+        this.panelTab = 'bid';
         this.findError = '';
         this.connection = 'up';
         window.scrollTo({ top: 0 });
@@ -284,6 +346,11 @@ createApp({
       this.page = page;
       window.scrollTo({ top: 0 });
       this.refresh();
+    },
+
+    setStatusFilter(status) {
+      this.statusFilter = status;
+      this.goToPage(0);
     },
 
     validateForm() {
@@ -315,7 +382,13 @@ createApp({
 
       if (result.ok) {
         this.showMessage(`Auction ${result.data.id} is open.`, 'good');
-        this.goToPage(Math.floor((result.data.id - 1) / this.size)); // IDs are sequential, and the list is oldest first
+        this.selectedId = result.data.id;
+        this.panelTab = 'bid';
+        if (this.statusFilter === 'CLOSED') {
+          this.statusFilter = 'ALL'; // otherwise the new auction wouldn't be on the list
+        }
+        // Newest first puts it on the first page. Oldest first puts it last, and refresh corrects a page that's too far.
+        this.goToPage(this.order === 'DESC' ? 0 : Math.floor(this.totalItems / this.size));
       } else {
         const failure = describeFailure(result);
         this.showMessage(failure.text, failure.tone);
@@ -325,7 +398,7 @@ createApp({
     validateBid(auction) {
       const draft = this.drafts[auction.id] ?? '';
       if (!this.bidderValid) {
-        return 'Enter your ID under "Bidding as" first.';
+        return 'Enter your user ID first.';
       }
       if (!isPositiveWhole(draft)) {
         return 'Enter a whole number above 0.';

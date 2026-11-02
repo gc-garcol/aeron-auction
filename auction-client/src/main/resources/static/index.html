@@ -1,129 +1,220 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Aeron Auction</title>
-  <link rel="stylesheet" href="style.css">
-  <script src="webjars/vue/3.5.44/dist/vue.global.prod.js" defer></script>
-  <script src="app.js" defer></script>
+    <meta charset="utf-8">
+    <meta content="width=device-width, initial-scale=1" name="viewport">
+    <meta content="#0b0e11" name="theme-color">
+    <title>Aeron Auction</title>
+    <link href="style.css" rel="stylesheet">
+    <script defer src="webjars/vue/3.5.44/dist/vue.global.prod.js"></script>
+    <script defer src="app.js"></script>
 </head>
 <body>
-  <div id="app" v-cloak>
+<div id="app" v-cloak>
     <header class="top">
-      <h1>Aeron Auction</h1>
-      <p class="connection" :class="connection" role="status">{{ connectionText }}</p>
-      <a class="docs" href="swagger-ui.html">API docs</a>
+        <h1>Aeron <span>Auction</span></h1>
+        <p :class="connection" class="connection" role="status">{{ connectionText }}</p>
+        <a class="docs" href="swagger-ui.html">API docs</a>
     </header>
 
-    <p v-if="message" class="message" :class="message.tone" role="status">
-      <span>{{ message.text }}</span>
-      <button type="button" class="dismiss" aria-label="Dismiss message" @click="message = null">×</button>
+    <p :class="message.tone" class="message" role="status" v-if="message">
+        <span>{{ message.text }}</span>
+        <button @click="message = null" aria-label="Dismiss message" class="dismiss" type="button">×</button>
     </p>
 
+    <section aria-label="Selected auction" class="ticker">
+        <template v-if="selected">
+            <div class="ticker-name">
+                <strong>Auction {{ selected.id }}</strong>
+                <span :class="badge(selected).tone" class="badge">{{ badge(selected).text }}</span>
+            </div>
+            <div class="ticker-price">
+                <span :class="{ bid: selected.highestBidderId !== null }" class="amount">{{ currentPrice(selected) }}</span>
+                <span class="muted">{{ priceCaption(selected) }}</span>
+            </div>
+            <dl class="stats">
+                <div>
+                    <dt>Start price</dt>
+                    <dd>{{ formatAmount(selected.startPrice) }}</dd>
+                </div>
+                <div>
+                    <dt>Increment</dt>
+                    <dd>{{ formatAmount(selected.minIncrement) }}</dd>
+                </div>
+                <div v-if="!isClosed(selected)">
+                    <dt>Minimum bid</dt>
+                    <dd>{{ formatAmount(minimumBid(selected)) }}</dd>
+                </div>
+                <div>
+                    <dt>Seller</dt>
+                    <dd>{{ selected.sellerId }}</dd>
+                </div>
+                <div v-if="!isClosed(selected)">
+                    <dt>Time left</dt>
+                    <dd :class="{ soon: endingSoon(selected) }" class="time">{{ timeLeft(selected) }}</dd>
+                </div>
+            </dl>
+        </template>
+        <p class="muted ticker-empty" v-else>Select an auction to see its details.</p>
+    </section>
+
     <main class="layout">
-      <aside class="side">
-        <section class="panel">
-          <h2>Bidding as</h2>
-          <label class="field">
-            <span>Your ID</span>
-            <input v-model="bidder" class="number" type="text" inputmode="numeric" autocomplete="off"
-                   :aria-invalid="!bidderValid" @input="bidder = digitsOnly(bidder)">
-            <small v-if="!bidderValid" class="error">Enter a whole number above 0.</small>
-          </label>
+        <section aria-labelledby="auctions-title" class="panel market">
+            <div class="market-head">
+                <h2 id="auctions-title">{{ foundId === null ? 'Auctions' : `Auction ${foundId}` }}</h2>
+                <span class="muted" v-if="foundId === null && totalItems">{{ totalItems }} in total</span>
+                <div aria-label="Filter by status" class="filters" role="group" v-if="foundId === null">
+                    <button :aria-pressed="statusFilter === option.value" :key="option.value" @click="setStatusFilter(option.value)" type="button"
+                            v-for="option in statusOptions">{{ option.label }}
+                    </button>
+                </div>
+                <label class="sort" v-if="foundId === null">
+                    <span class="visually-hidden">Sort auctions</span>
+                    <select @change="goToPage(0)" v-model="order">
+                        <option value="DESC">Newest first</option>
+                        <option value="ASC">Oldest first</option>
+                    </select>
+                </label>
+                <form @submit.prevent="findAuction" class="find" novalidate role="search">
+                    <label class="field">
+                        <span class="visually-hidden">Find an auction by ID</span>
+                        <input :aria-invalid="!!findError" @input="findQuery = digitsOnly(findQuery); findError = ''" autocomplete="off" class="number" inputmode="numeric"
+                               placeholder="Find by ID" type="text"
+                               v-model="findQuery">
+                    </label>
+                    <button :disabled="finding" type="submit">{{ finding ? 'Finding…' : 'Find' }}</button>
+                    <button @click="clearFind" type="button" v-if="foundId !== null">Show all</button>
+                    <small class="error" v-if="findError">{{ findError }}</small>
+                </form>
+            </div>
+
+            <p class="empty" v-if="!loaded && connection === 'down'">Can't load auctions right now. Retrying…</p>
+            <p class="empty" v-else-if="!loaded">Loading…</p>
+            <div class="empty" v-else-if="foundId === null && totalItems === 0">
+                <p>{{ emptyText }}</p>
+                <button @click="panelTab = 'create'" class="primary" type="button" v-if="statusFilter === 'ALL'">Open the first one</button>
+            </div>
+
+            <div class="table-wrap" v-if="auctions.length">
+                <table>
+                    <thead>
+                    <tr>
+                        <th scope="col">Auction</th>
+                        <th class="right" scope="col">Price</th>
+                        <th class="right wide-only" scope="col">Min. bid</th>
+                        <th class="right wide-only" scope="col">Top bidder</th>
+                        <th class="right wide-only" scope="col">Seller</th>
+                        <th class="right" scope="col">Time left</th>
+                        <th class="right" scope="col">Status</th>
+                    </tr>
+                    </thead>
+                    <tbody>
+                    <tr :class="{ selected: selected && selected.id === auction.id, ended: isClosed(auction), flash: flashing[auction.id] }" :data-id="auction.id"
+                        :key="auction.id"
+                        @click="selectAuction(auction)" v-for="auction in auctions">
+                        <th scope="row">
+                            <button :aria-pressed="!!selected && selected.id === auction.id" @click.stop="selectAuction(auction)" class="row-select" type="button">
+                                Auction {{ auction.id }}
+                            </button>
+                        </th>
+                        <td :class="{ bid: auction.highestBidderId !== null }" class="right price">{{ currentPrice(auction) }}</td>
+                        <td class="right wide-only">{{ isClosed(auction) ? '–' : formatAmount(minimumBid(auction)) }}</td>
+                        <td class="right wide-only">{{ auction.highestBidderId ?? '–' }}</td>
+                        <td class="right wide-only">{{ auction.sellerId }}</td>
+                        <td :class="{ soon: !isClosed(auction) && endingSoon(auction) }" class="right time">{{ isClosed(auction) ? '–' : timeLeft(auction) }}</td>
+                        <td class="right"><span :class="badge(auction).tone" class="badge">{{ badge(auction).text }}</span></td>
+                    </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <nav aria-label="Pages" class="pager" v-if="foundId === null && totalItems">
+                <button :disabled="shownPage === 0" @click="goToPage(shownPage - 1)" type="button">Previous</button>
+                <span aria-live="polite" class="page-info">Page {{ shownPage + 1 }} of {{ totalPages }}</span>
+                <button :disabled="shownPage + 1 >= totalPages" @click="goToPage(shownPage + 1)" type="button">Next</button>
+                <label class="per-page">Per page
+                    <select @change="goToPage(0)" v-model.number="size">
+                        <option :key="option" :value="option" v-for="option in sizes">{{ option }}</option>
+                    </select>
+                </label>
+            </nav>
         </section>
 
-        <details class="panel create" :open="createOpen" @toggle="createOpen = $event.target.open">
-          <summary><h2>Open an auction</h2></summary>
-          <form novalidate @submit.prevent="createAuction">
-            <label v-for="field in createFields" :key="field.key" class="field">
-              <span>{{ field.label }}</span>
-              <input v-model="form[field.key]" class="number" type="text" inputmode="numeric" autocomplete="off"
-                     :name="field.key" :aria-invalid="!!formErrors[field.key]"
-                     @input="form[field.key] = digitsOnly(form[field.key]); formErrors[field.key] = ''">
-              <small v-if="formErrors[field.key]" class="error">{{ formErrors[field.key] }}</small>
-            </label>
-            <button type="submit" class="primary wide" :disabled="creating">
-              {{ creating ? 'Opening…' : 'Open auction' }}
-            </button>
-          </form>
-        </details>
-      </aside>
-
-      <section class="content" aria-labelledby="auctions-title">
-        <div class="content-head">
-          <h2 id="auctions-title">{{ foundId === null ? 'Auctions' : `Auction ${foundId}` }}</h2>
-          <span v-if="foundId === null && totalItems" class="muted">{{ totalItems }} in total</span>
-          <form class="find" novalidate role="search" @submit.prevent="findAuction">
-            <label class="field">
-              <span class="visually-hidden">Find an auction by ID</span>
-              <input v-model="findQuery" class="number" type="text" inputmode="numeric" autocomplete="off"
-                     placeholder="Find by ID" :aria-invalid="!!findError"
-                     @input="findQuery = digitsOnly(findQuery); findError = ''">
-            </label>
-            <button type="submit" :disabled="finding">{{ finding ? 'Finding…' : 'Find' }}</button>
-            <button v-if="foundId !== null" type="button" class="clear" @click="clearFind">Show all</button>
-            <small v-if="findError" class="error">{{ findError }}</small>
-          </form>
-        </div>
-
-        <p v-if="!loaded && connection === 'down'" class="empty">Can't load auctions right now. Retrying…</p>
-        <p v-else-if="!loaded" class="empty">Loading…</p>
-        <p v-else-if="foundId === null && totalItems === 0" class="empty">No auctions yet. Open the first one.</p>
-
-        <ul class="cards">
-          <li v-for="auction in auctions" :key="auction.id" class="card" :class="{ ended: isClosed(auction) }"
-              :data-id="auction.id">
-            <div class="card-head">
-              <strong>Auction {{ auction.id }}</strong>
-              <span class="badge" :class="badge(auction).tone">{{ badge(auction).text }}</span>
+        <aside aria-label="Bid or open an auction" class="panel order" ref="panel">
+            <div class="identity">
+                <label class="input-group">
+                    <span class="user-label">
+                        <svg aria-hidden="true" fill="currentColor" height="14" viewBox="0 0 16 16" width="14">
+                            <circle cx="8" cy="5" r="3"/>
+                            <path d="M2 14c0-3 2.7-5 6-5s6 2 6 5z"/>
+                        </svg>
+                        Your user ID
+                    </span>
+                    <input :aria-invalid="!bidderValid" @input="bidder = digitsOnly(bidder)" autocomplete="off" class="number" inputmode="numeric"
+                           type="text" v-model="bidder">
+                </label>
+                <small class="error" v-if="!bidderValid">Enter a whole number above 0.</small>
+                <small class="user-hint" v-else>Your bids are placed under this ID.</small>
             </div>
 
-            <div class="price">
-              <span class="amount">{{ auction.highestBidderId === null ? auction.startPrice : auction.highestBid }}</span>
-              <span class="muted">{{ priceCaption(auction) }}</span>
+            <div class="tabs">
+                <button :aria-pressed="panelTab === 'bid'" @click="panelTab = 'bid'" type="button">Place bid</button>
+                <button :aria-pressed="panelTab === 'create'" @click="panelTab = 'create'" type="button">Open auction</button>
             </div>
 
-            <dl class="facts">
-              <div><dt>Seller</dt><dd>{{ auction.sellerId }}</dd></div>
-              <div v-if="!isClosed(auction)">
-                <dt>Time left</dt><dd class="time" :class="{ soon: endingSoon(auction) }">{{ timeLeft(auction) }}</dd>
-              </div>
-            </dl>
+            <div v-if="panelTab === 'bid'">
+                <p class="hint" v-if="!selected">Select an auction from the list to bid on it.</p>
+                <p :class="{ won: selected.highestBidderId !== null }" class="outcome" v-else-if="isClosed(selected)">
+                    {{ outcome(selected) }}
+                </p>
+                <p class="hint" v-else-if="isSeller(selected)">This is your auction, so you can't bid on it.</p>
+                <form @submit.prevent="placeBid(selected)" class="bid" novalidate v-else>
+                    <p class="hint leading" v-if="isLeading(selected)">You're leading this auction.</p>
+                    <dl class="summary">
+                        <div>
+                            <dt>Bidding on</dt>
+                            <dd>Auction {{ selected.id }}</dd>
+                        </div>
+                        <div>
+                            <dt>Minimum bid</dt>
+                            <dd>{{ formatAmount(minimumBid(selected)) }}</dd>
+                        </div>
+                    </dl>
+                    <label class="input-group">
+                        <span>Your bid</span>
+                        <input :aria-invalid="!!bidErrors[selected.id]" @input="drafts[selected.id] = digitsOnly(drafts[selected.id]); bidErrors[selected.id] = ''" autocomplete="off" class="number" inputmode="numeric"
+                               type="text"
+                               v-model="drafts[selected.id]">
+                    </label>
+                    <small class="error" v-if="bidErrors[selected.id]">{{ bidErrors[selected.id] }}</small>
+                    <div aria-label="Fill in a bid" class="quick" role="group">
+                        <button :key="step" @click="fillBid(selected, step)" type="button" v-for="step in bidSteps">
+                            {{ step === 0 ? 'Min' : `+${step} step${step > 1 ? 's' : ''}` }}
+                        </button>
+                    </div>
+                    <button :disabled="sending[selected.id]" class="buy wide" type="submit">
+                        {{ sending[selected.id] ? 'Bidding…' : 'Place bid' }}
+                    </button>
+                </form>
+            </div>
 
-            <p v-if="isClosed(auction)" class="outcome" :class="{ won: auction.highestBidderId !== null }">
-              {{ outcome(auction) }}
-            </p>
-            <p v-else-if="isSeller(auction)" class="hint">This is your auction, so you can't bid on it.</p>
-            <form v-else class="bid" novalidate @submit.prevent="placeBid(auction)">
-              <label class="field">
-                <span>Your bid (at least {{ minimumBid(auction) }})</span>
-                <span class="bid-row">
-                  <input v-model="drafts[auction.id]" class="number" type="text" inputmode="numeric" autocomplete="off"
-                         :aria-invalid="!!bidErrors[auction.id]"
-                         @input="drafts[auction.id] = digitsOnly(drafts[auction.id]); bidErrors[auction.id] = ''">
-                  <button type="submit" class="primary" :disabled="sending[auction.id]">
-                    {{ sending[auction.id] ? 'Bidding…' : 'Bid' }}
-                  </button>
-                </span>
-                <small v-if="bidErrors[auction.id]" class="error">{{ bidErrors[auction.id] }}</small>
-              </label>
+            <form @submit.prevent="createAuction" novalidate v-else>
+                <template :key="field.key" v-for="field in createFields">
+                    <label class="input-group">
+                        <span>{{ field.label }}</span>
+                        <input :aria-invalid="!!formErrors[field.key]" :name="field.key" @input="form[field.key] = digitsOnly(form[field.key]); formErrors[field.key] = ''" autocomplete="off"
+                               class="number"
+                               inputmode="numeric" type="text"
+                               v-model="form[field.key]">
+                    </label>
+                    <small class="error" v-if="formErrors[field.key]">{{ formErrors[field.key] }}</small>
+                </template>
+                <button :disabled="creating" class="primary wide" type="submit">
+                    {{ creating ? 'Opening…' : 'Open auction' }}
+                </button>
             </form>
-          </li>
-        </ul>
-
-        <nav v-if="foundId === null && totalItems" class="pager" aria-label="Pages">
-          <button type="button" :disabled="shownPage === 0" @click="goToPage(shownPage - 1)">Previous</button>
-          <span class="page-info" aria-live="polite">Page {{ shownPage + 1 }} of {{ totalPages }}</span>
-          <button type="button" :disabled="shownPage + 1 >= totalPages" @click="goToPage(shownPage + 1)">Next</button>
-          <label class="per-page">Per page
-            <select v-model.number="size" @change="goToPage(0)">
-              <option v-for="option in sizes" :key="option" :value="option">{{ option }}</option>
-            </select>
-          </label>
-        </nav>
-      </section>
+        </aside>
     </main>
-  </div>
+</div>
 </body>
 </html>

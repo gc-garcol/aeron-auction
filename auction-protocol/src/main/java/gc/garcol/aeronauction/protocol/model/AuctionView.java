@@ -1,17 +1,17 @@
-package gc.garcol.aeronauction.protocol;
+package gc.garcol.aeronauction.protocol.model;
 
 /**
  * Immutable picture of an auction. Amounts are minor units. A {@code highestBidderId} of {@link #NO_BIDDER}
  * means nobody has bid, in which case {@code highestBid} is 0.
  *
- * @param id of the auction.
- * @param sellerId of the seller.
- * @param startPrice the lowest allowed first bid.
- * @param minIncrement the amount each later bid must add.
- * @param highestBid the current highest bid.
+ * @param id              of the auction.
+ * @param sellerId        of the seller.
+ * @param startPrice      the lowest allowed first bid.
+ * @param minIncrement    the amount each later bid must add.
+ * @param highestBid      the current highest bid.
  * @param highestBidderId who placed the highest bid.
- * @param endsAt the deadline in cluster time, in milliseconds.
- * @param closed true if the auction has ended.
+ * @param endsAt          the deadline in cluster time, in milliseconds.
+ * @param closed          true if the auction has ended.
  */
 public record AuctionView(
     long id,

@@ -1,8 +1,8 @@
 package gc.garcol.aeronauction.client.rpc;
 
-import gc.garcol.aeronauction.protocol.Codec;
-import gc.garcol.aeronauction.protocol.Command;
-import gc.garcol.aeronauction.protocol.Reply;
+import gc.garcol.aeronauction.protocol.codec.Codec;
+import gc.garcol.aeronauction.protocol.command.Command;
+import gc.garcol.aeronauction.protocol.reply.Reply;
 import io.aeron.cluster.client.AeronCluster;
 import io.aeron.cluster.client.EgressListener;
 import io.aeron.logbuffer.Header;
@@ -33,35 +33,20 @@ import java.util.concurrent.atomic.AtomicInteger;
  */
 public final class ClusterRpcAgent implements Agent, EgressListener
 {
-    private record Request(Command command, CompletableFuture<Reply> future, long startNanos)
-    {
-    }
-
-    private record Pending(Request request, long timerId)
-    {
-    }
-
     private static final Logger LOG = LoggerFactory.getLogger(ClusterRpcAgent.class);
-    private static final int QUEUE_CAPACITY = 4096;
-    private static final int MAX_SENDS_PER_CYCLE = 64;
-    private static final long KEEP_ALIVE_INTERVAL_MS = 1_000;
-    private static final long RECONNECT_DELAY_MS = 500;
-    private static final long TICK_RESOLUTION_MS = 16;
-    private static final int TICKS_PER_WHEEL = 256;
-    private static final long NO_CORRELATION = -1;
-
     private final AeronCluster.Context clusterContext;
     private final long rpcTimeoutMs;
+    private final ClusterRpcProperties properties;
     private final MeterRegistry registry;
-    private final ManyToOneConcurrentArrayQueue<Request> queue = new ManyToOneConcurrentArrayQueue<>(QUEUE_CAPACITY);
+    private final ManyToOneConcurrentArrayQueue<Request> queue;
     private final Long2ObjectHashMap<Pending> pending = new Long2ObjectHashMap<>();
-    private final Long2LongHashMap timerToCorrelation = new Long2LongHashMap(NO_CORRELATION);
+    private final Long2LongHashMap timerToCorrelation;
     private final DeadlineTimerWheel wheel;
     private final ExpandableArrayBuffer buffer = new ExpandableArrayBuffer(Codec.MAX_MESSAGE_LENGTH);
     private final Codec codec = new Codec();
     private final AtomicInteger pendingGauge = new AtomicInteger();
     private final Counter reconnects;
-
+    private ClusterReadChannel readChannel;
     private AeronCluster.AsyncConnect asyncConnect;
     private AeronCluster cluster;
     private long nextCorrelationId = 1;
@@ -70,30 +55,53 @@ public final class ClusterRpcAgent implements Agent, EgressListener
     private boolean everConnected;
     /**
      * -- GETTER --
-     *  Says whether there is a cluster session.
+     * Says whether there is a cluster session.
      *
      * @return true if connected.
      */
     @Getter
     private volatile boolean connected;
-
     /**
      * Creates the agent. It connects once its thread starts.
      *
      * @param clusterContext template for each connection attempt.
-     * @param rpcTimeoutMs how long to wait for a reply.
-     * @param registry for metrics.
+     * @param rpcTimeoutMs   how long to wait for a reply.
+     * @param properties     the agent's settings.
+     * @param registry       for metrics.
      */
     public ClusterRpcAgent(
-        final AeronCluster.Context clusterContext, final long rpcTimeoutMs, final MeterRegistry registry)
+        final AeronCluster.Context clusterContext,
+        final long rpcTimeoutMs,
+        final ClusterRpcProperties properties,
+        final MeterRegistry registry)
     {
+        if (properties.noCorrelation() >= 1)
+        {
+            throw new IllegalArgumentException("auction.rpc.no-correlation must be below 1, as real IDs start at 1");
+        }
         this.clusterContext = clusterContext.egressListener(this);
         this.rpcTimeoutMs = rpcTimeoutMs;
+        this.properties = properties;
+        this.queue = new ManyToOneConcurrentArrayQueue<>(properties.queueCapacity());
+        this.timerToCorrelation = new Long2LongHashMap(properties.noCorrelation());
         this.registry = registry;
         this.wheel = new DeadlineTimerWheel(
-            TimeUnit.MILLISECONDS, System.currentTimeMillis(), TICK_RESOLUTION_MS, TICKS_PER_WHEEL);
+            TimeUnit.MILLISECONDS,
+            System.currentTimeMillis(),
+            properties.timerTickResolutionMs(),
+            properties.timerTicksPerWheel());
         this.reconnects = registry.counter("auction.client.reconnects");
         registry.gauge("auction.rpc.pending", pendingGauge);
+    }
+
+    /**
+     * Sends reads over a read channel when it's ready, instead of through the log. Call this before the agent starts.
+     *
+     * @param readChannel to use, which this agent then owns.
+     */
+    void useReadChannel(final ClusterReadChannel readChannel)
+    {
+        this.readChannel = readChannel;
     }
 
     /**
@@ -128,16 +136,20 @@ public final class ClusterRpcAgent implements Agent, EgressListener
             work += tryConnect(nowMs);
             work += queue.drain(
                 request -> fail(request, RpcFailure.Kind.UNAVAILABLE, "no_session", "not connected to the cluster"),
-                MAX_SENDS_PER_CYCLE);
+                properties.maxSendsPerCycle());
         }
         else
         {
-            work += queue.drain(request -> send(request, nowMs), MAX_SENDS_PER_CYCLE);
+            if (readChannel != null)
+            {
+                work += readChannel.doWork(nowMs, cluster.leaderMemberId());
+            }
+            work += queue.drain(request -> send(request, nowMs), properties.maxSendsPerCycle());
             work += cluster.pollEgress();
             if (nowMs >= nextKeepAliveMs && !cluster.isClosed())
             {
                 cluster.sendKeepAlive();
-                nextKeepAliveMs = nowMs + KEEP_ALIVE_INTERVAL_MS;
+                nextKeepAliveMs = nowMs + properties.keepAliveIntervalMs();
             }
         }
         return work;
@@ -151,6 +163,24 @@ public final class ClusterRpcAgent implements Agent, EgressListener
         final int offset,
         final int length,
         final Header header)
+    {
+        onReply(message, offset, length);
+    }
+
+    /**
+     * Handles a reply that came through the read channel.
+     *
+     * @param message holding the reply.
+     * @param offset  of the reply.
+     * @param length  of the reply.
+     * @param header  of the fragment.
+     */
+    void onReadReply(final DirectBuffer message, final int offset, final int length, final Header header)
+    {
+        onReply(message, offset, length);
+    }
+
+    private void onReply(final DirectBuffer message, final int offset, final int length)
     {
         final Reply reply = codec.decodeReply(message, offset, length);
         final Pending completed = pending.remove(reply.correlationId());
@@ -176,7 +206,7 @@ public final class ClusterRpcAgent implements Agent, EgressListener
     {
         failAllPending();
         queue.drain(request -> fail(request, RpcFailure.Kind.UNAVAILABLE, "shutdown", "client is shutting down"));
-        CloseHelper.quietCloseAll(asyncConnect, cluster);
+        CloseHelper.quietCloseAll(asyncConnect, cluster, readChannel);
         connected = false;
     }
 
@@ -184,7 +214,14 @@ public final class ClusterRpcAgent implements Agent, EgressListener
     {
         final long correlationId = nextCorrelationId++;
         final int length = codec.encode(request.command(), correlationId, buffer);
-        if (cluster.offer(buffer, 0, length) < 0)
+        final boolean isRead = request.command() instanceof Command.GetAuction ||
+            request.command() instanceof Command.ListAuctions;
+        final boolean sentOnReadChannel = isRead && readChannel != null && readChannel.offer(buffer, length);
+        if (isRead)
+        {
+            registry.counter("auction.rpc.reads", "route", sentOnReadChannel ? "read_channel" : "log").increment();
+        }
+        if (!sentOnReadChannel && cluster.offer(buffer, 0, length) < 0)
         {
             fail(request, RpcFailure.Kind.UNAVAILABLE, "back_pressure", "cluster is unavailable or back-pressured");
             return;
@@ -239,7 +276,7 @@ public final class ClusterRpcAgent implements Agent, EgressListener
             LOG.warn("cluster connect attempt failed: {}", ex.getMessage());
             CloseHelper.quietClose(asyncConnect);
             asyncConnect = null;
-            nextConnectAttemptMs = nowMs + RECONNECT_DELAY_MS;
+            nextConnectAttemptMs = nowMs + properties.reconnectDelayMs();
             return 1;
         }
 
@@ -249,7 +286,7 @@ public final class ClusterRpcAgent implements Agent, EgressListener
         }
         asyncConnect = null;
         connected = true;
-        nextKeepAliveMs = nowMs + KEEP_ALIVE_INTERVAL_MS;
+        nextKeepAliveMs = nowMs + properties.keepAliveIntervalMs();
         if (everConnected)
         {
             reconnects.increment();
@@ -295,5 +332,13 @@ public final class ClusterRpcAgent implements Agent, EgressListener
             .publishPercentileHistogram()
             .register(registry)
             .record(System.nanoTime() - request.startNanos(), TimeUnit.NANOSECONDS);
+    }
+
+    private record Request(Command command, CompletableFuture<Reply> future, long startNanos)
+    {
+    }
+
+    private record Pending(Request request, long timerId)
+    {
     }
 }

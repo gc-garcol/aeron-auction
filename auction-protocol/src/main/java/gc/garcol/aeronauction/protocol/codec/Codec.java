@@ -1,11 +1,17 @@
-package gc.garcol.aeronauction.protocol;
+package gc.garcol.aeronauction.protocol.codec;
 
+import gc.garcol.aeronauction.protocol.command.Command;
+import gc.garcol.aeronauction.protocol.model.AuctionView;
+import gc.garcol.aeronauction.protocol.reply.AuctionPageReply;
+import gc.garcol.aeronauction.protocol.reply.AuctionReply;
+import gc.garcol.aeronauction.protocol.reply.Reply;
 import gc.garcol.aeronauction.protocol.sbe.AuctionDecoder;
 import gc.garcol.aeronauction.protocol.sbe.AuctionEncoder;
 import gc.garcol.aeronauction.protocol.sbe.AuctionPageReplyDecoder;
 import gc.garcol.aeronauction.protocol.sbe.AuctionPageReplyEncoder;
 import gc.garcol.aeronauction.protocol.sbe.AuctionReplyDecoder;
 import gc.garcol.aeronauction.protocol.sbe.AuctionReplyEncoder;
+import gc.garcol.aeronauction.protocol.sbe.AuctionStatusFilter;
 import gc.garcol.aeronauction.protocol.sbe.BooleanType;
 import gc.garcol.aeronauction.protocol.sbe.CreateAuctionDecoder;
 import gc.garcol.aeronauction.protocol.sbe.CreateAuctionEncoder;
@@ -17,11 +23,16 @@ import gc.garcol.aeronauction.protocol.sbe.MessageHeaderDecoder;
 import gc.garcol.aeronauction.protocol.sbe.MessageHeaderEncoder;
 import gc.garcol.aeronauction.protocol.sbe.PlaceBidDecoder;
 import gc.garcol.aeronauction.protocol.sbe.PlaceBidEncoder;
+import gc.garcol.aeronauction.protocol.sbe.ReadHelloDecoder;
+import gc.garcol.aeronauction.protocol.sbe.ReadHelloEncoder;
+import gc.garcol.aeronauction.protocol.sbe.ReadReadyDecoder;
+import gc.garcol.aeronauction.protocol.sbe.ReadReadyEncoder;
 import gc.garcol.aeronauction.protocol.sbe.ReplyStatus;
 import gc.garcol.aeronauction.protocol.sbe.SnapshotAuctionDecoder;
 import gc.garcol.aeronauction.protocol.sbe.SnapshotAuctionEncoder;
 import gc.garcol.aeronauction.protocol.sbe.SnapshotHeaderDecoder;
 import gc.garcol.aeronauction.protocol.sbe.SnapshotHeaderEncoder;
+import gc.garcol.aeronauction.protocol.sbe.SortOrder;
 import org.agrona.DirectBuffer;
 import org.agrona.MutableDirectBuffer;
 
@@ -36,31 +47,18 @@ import java.util.List;
 public final class Codec
 {
     /**
-     * A decoded command and the ID to reply with.
-     *
-     * @param correlationId chosen by the client.
-     * @param command to apply.
+     * Stream that carries reads to a node, outside the replicated log.
      */
-    public record Request(long correlationId, Command command)
-    {
-    }
-
+    public static final int READ_REQUEST_STREAM_ID = 1101;
     /**
-     * The first record of a snapshot.
-     *
-     * @param nextAuctionId the next ID to assign.
-     * @param lastTimestamp of the last log event applied before the snapshot.
+     * Stream that carries read replies back to a client.
      */
-    public record SnapshotHeader(long nextAuctionId, long lastTimestamp)
-    {
-    }
-
+    public static final int READ_REPLY_STREAM_ID = 1102;
     /**
      * Upper bound on the encoded length of any message.
      */
     public static final int MAX_MESSAGE_LENGTH = 128;
     private static final int HEADER_LENGTH = MessageHeaderDecoder.ENCODED_LENGTH;
-
     private final MessageHeaderEncoder headerEncoder = new MessageHeaderEncoder();
     private final MessageHeaderDecoder headerDecoder = new MessageHeaderDecoder();
     private final CreateAuctionEncoder createEncoder = new CreateAuctionEncoder();
@@ -69,6 +67,10 @@ public final class Codec
     private final PlaceBidDecoder bidDecoder = new PlaceBidDecoder();
     private final GetAuctionEncoder getEncoder = new GetAuctionEncoder();
     private final GetAuctionDecoder getDecoder = new GetAuctionDecoder();
+    private final ReadHelloEncoder readHelloEncoder = new ReadHelloEncoder();
+    private final ReadHelloDecoder readHelloDecoder = new ReadHelloDecoder();
+    private final ReadReadyEncoder readReadyEncoder = new ReadReadyEncoder();
+    private final ReadReadyDecoder readReadyDecoder = new ReadReadyDecoder();
     private final ListAuctionsEncoder listEncoder = new ListAuctionsEncoder();
     private final ListAuctionsDecoder listDecoder = new ListAuctionsDecoder();
     private final AuctionPageReplyEncoder pageEncoder = new AuctionPageReplyEncoder();
@@ -80,12 +82,38 @@ public final class Codec
     private final SnapshotAuctionEncoder snapshotAuctionEncoder = new SnapshotAuctionEncoder();
     private final SnapshotAuctionDecoder snapshotAuctionDecoder = new SnapshotAuctionDecoder();
 
+    private static void write(final AuctionEncoder encoder, final AuctionView auction)
+    {
+        encoder
+            .id(auction.id())
+            .sellerId(auction.sellerId())
+            .startPrice(auction.startPrice())
+            .minIncrement(auction.minIncrement())
+            .highestBid(auction.highestBid())
+            .highestBidderId(auction.highestBidderId())
+            .endsAt(auction.endsAt())
+            .closed(auction.closed() ? BooleanType.TRUE : BooleanType.FALSE);
+    }
+
+    private static AuctionView read(final AuctionDecoder decoder)
+    {
+        return new AuctionView(
+            decoder.id(),
+            decoder.sellerId(),
+            decoder.startPrice(),
+            decoder.minIncrement(),
+            decoder.highestBid(),
+            decoder.highestBidderId(),
+            decoder.endsAt(),
+            decoder.closed() == BooleanType.TRUE);
+    }
+
     /**
      * Encodes a command at the start of the buffer.
      *
-     * @param command to encode.
+     * @param command       to encode.
      * @param correlationId the cluster should reply with.
-     * @param buffer to write to.
+     * @param buffer        to write to.
      * @return the number of bytes written.
      */
     public int encode(final Command command, final long correlationId, final MutableDirectBuffer buffer)
@@ -113,6 +141,8 @@ public final class Codec
                 .correlationId(correlationId)
                 .page(c.page())
                 .size(c.size())
+                .status(c.status())
+                .order(c.order())
                 .encodedLength();
         };
     }
@@ -125,7 +155,7 @@ public final class Codec
      * @param length of the message.
      * @return the decoded request.
      * @throws IllegalArgumentException if the message is malformed. The cluster drops such messages rather than
-     * crashing, because input comes from outside the replicated state machine.
+     *                                  crashing, because input comes from outside the replicated state machine.
      */
     public Request decodeRequest(final DirectBuffer buffer, final int offset, final int length)
     {
@@ -159,8 +189,7 @@ public final class Codec
             case ListAuctionsDecoder.TEMPLATE_ID ->
             {
                 listDecoder.wrap(buffer, body, blockLength, version);
-                yield new Request(
-                    listDecoder.correlationId(), new Command.ListAuctions(listDecoder.page(), listDecoder.size()));
+                yield new Request(listDecoder.correlationId(), decodeList());
             }
             default -> throw new IllegalArgumentException("unknown template " + templateId);
         };
@@ -169,7 +198,7 @@ public final class Codec
     /**
      * Encodes a reply at the start of the buffer.
      *
-     * @param reply to encode.
+     * @param reply  to encode.
      * @param buffer to write to.
      * @return the number of bytes written.
      */
@@ -183,9 +212,93 @@ public final class Codec
     }
 
     /**
+     * Encodes a read channel hello at the start of the buffer.
+     *
+     * @param replyChannel where the leader should send replies.
+     * @param buffer       to write to.
+     * @return the number of bytes written.
+     */
+    public int encodeReadHello(final String replyChannel, final MutableDirectBuffer buffer)
+    {
+        return HEADER_LENGTH + readHelloEncoder.wrapAndApplyHeader(buffer, 0, headerEncoder)
+            .replyChannel(replyChannel)
+            .encodedLength();
+    }
+
+    /**
+     * Says whether a message is a read channel hello.
+     *
+     * @param buffer to read from.
+     * @param offset of the message.
+     * @param length of the message.
+     * @return true if it is.
+     */
+    public boolean isReadHello(final DirectBuffer buffer, final int offset, final int length)
+    {
+        return wrapHeader(buffer, offset, length) == ReadHelloDecoder.TEMPLATE_ID;
+    }
+
+    /**
+     * Decodes a read channel hello.
+     *
+     * @param buffer to read from.
+     * @param offset of the message.
+     * @param length of the message.
+     * @return where the leader should send replies.
+     */
+    public String decodeReadHello(final DirectBuffer buffer, final int offset, final int length)
+    {
+        wrapHeader(buffer, offset, length);
+        readHelloDecoder.wrap(buffer, offset + HEADER_LENGTH, headerDecoder.blockLength(), headerDecoder.version());
+        return readHelloDecoder.replyChannel();
+    }
+
+    /**
+     * Encodes a read channel acknowledgement at the start of the buffer.
+     *
+     * @param nodeId of the leader sending it.
+     * @param buffer to write to.
+     * @return the number of bytes written.
+     */
+    public int encodeReadReady(final int nodeId, final MutableDirectBuffer buffer)
+    {
+        return HEADER_LENGTH + readReadyEncoder.wrapAndApplyHeader(buffer, 0, headerEncoder)
+            .nodeId(nodeId)
+            .encodedLength();
+    }
+
+    /**
+     * Says whether a message is a read channel acknowledgement.
+     *
+     * @param buffer to read from.
+     * @param offset of the message.
+     * @param length of the message.
+     * @return true if it is.
+     */
+    public boolean isReadReady(final DirectBuffer buffer, final int offset, final int length)
+    {
+        return wrapHeader(buffer, offset, length) == ReadReadyDecoder.TEMPLATE_ID;
+    }
+
+    /**
+     * Decodes a read channel acknowledgement.
+     *
+     * @param buffer to read from.
+     * @param offset of the message.
+     * @param length of the message.
+     * @return the ID of the leader that sent it.
+     */
+    public int decodeReadReady(final DirectBuffer buffer, final int offset, final int length)
+    {
+        wrapHeader(buffer, offset, length);
+        readReadyDecoder.wrap(buffer, offset + HEADER_LENGTH, headerDecoder.blockLength(), headerDecoder.version());
+        return readReadyDecoder.nodeId();
+    }
+
+    /**
      * Encodes a page of auctions at the start of the buffer.
      *
-     * @param reply to encode.
+     * @param reply  to encode.
      * @param buffer to write to.
      * @return the number of bytes written.
      */
@@ -240,7 +353,7 @@ public final class Codec
      *
      * @param nextAuctionId the next ID to assign.
      * @param lastTimestamp of the last log event applied.
-     * @param buffer to write to.
+     * @param buffer        to write to.
      * @return the number of bytes written.
      */
     public int encodeSnapshotHeader(
@@ -256,7 +369,7 @@ public final class Codec
      * Encodes one auction of a snapshot at the start of the buffer.
      *
      * @param auction to encode.
-     * @param buffer to write to.
+     * @param buffer  to write to.
      * @return the number of bytes written.
      */
     public int encodeSnapshotAuction(final AuctionView auction, final MutableDirectBuffer buffer)
@@ -285,6 +398,20 @@ public final class Codec
         }
         snapshotAuctionDecoder.wrap(buffer, body, headerDecoder.blockLength(), headerDecoder.version());
         return read(snapshotAuctionDecoder.auction());
+    }
+
+    // Logs recorded before status and order existed keep their old meaning: all auctions, oldest first.
+    private Command.ListAuctions decodeList()
+    {
+        final int page = listDecoder.page();
+        final int size = listDecoder.size();
+        final AuctionStatusFilter status = listDecoder.status();
+        final SortOrder order = listDecoder.order();
+        return new Command.ListAuctions(
+            page,
+            size,
+            status == AuctionStatusFilter.NULL_VAL ? AuctionStatusFilter.ALL : status,
+            order == SortOrder.NULL_VAL ? SortOrder.ASC : order);
     }
 
     private AuctionPageReply decodePage()
@@ -320,29 +447,23 @@ public final class Codec
         return headerDecoder.templateId();
     }
 
-    private static void write(final AuctionEncoder encoder, final AuctionView auction)
+    /**
+     * A decoded command and the ID to reply with.
+     *
+     * @param correlationId chosen by the client.
+     * @param command       to apply.
+     */
+    public record Request(long correlationId, Command command)
     {
-        encoder
-            .id(auction.id())
-            .sellerId(auction.sellerId())
-            .startPrice(auction.startPrice())
-            .minIncrement(auction.minIncrement())
-            .highestBid(auction.highestBid())
-            .highestBidderId(auction.highestBidderId())
-            .endsAt(auction.endsAt())
-            .closed(auction.closed() ? BooleanType.TRUE : BooleanType.FALSE);
     }
 
-    private static AuctionView read(final AuctionDecoder decoder)
+    /**
+     * The first record of a snapshot.
+     *
+     * @param nextAuctionId the next ID to assign.
+     * @param lastTimestamp of the last log event applied before the snapshot.
+     */
+    public record SnapshotHeader(long nextAuctionId, long lastTimestamp)
     {
-        return new AuctionView(
-            decoder.id(),
-            decoder.sellerId(),
-            decoder.startPrice(),
-            decoder.minIncrement(),
-            decoder.highestBid(),
-            decoder.highestBidderId(),
-            decoder.endsAt(),
-            decoder.closed() == BooleanType.TRUE);
     }
 }
