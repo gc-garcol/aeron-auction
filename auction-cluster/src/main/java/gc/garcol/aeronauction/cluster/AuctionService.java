@@ -37,15 +37,17 @@ public final class AuctionService implements ClusteredService
     private final ExpandableArrayBuffer buffer = new ExpandableArrayBuffer(Codec.MAX_MESSAGE_LENGTH);
     private final Codec codec = new Codec();
     private final NodeMetrics metrics;
+    private final ReadChannel readChannel;
 
     private Cluster cluster;
     private IdleStrategy idleStrategy;
     private boolean tickArmed;
     private long lastTimestamp;
 
-    AuctionService(final NodeMetrics metrics)
+    AuctionService(final NodeMetrics metrics, final ReadChannel readChannel)
     {
         this.metrics = metrics;
+        this.readChannel = readChannel;
     }
 
     @Override
@@ -167,6 +169,16 @@ public final class AuctionService implements ClusteredService
     @Override
     public void onTerminate(final Cluster cluster)
     {
+    }
+
+    /**
+     * Answers reads that came through the read channel instead of the log. This isn't part of the state machine, so it
+     * must only read. Aeron can also call it from inside {@code idleStrategy.idle()}, partway through a callback.
+     */
+    @Override
+    public int doBackgroundWork(final long nowNs)
+    {
+        return readChannel.poll(book, cluster.role() == Cluster.Role.LEADER, cluster.time(), nowNs);
     }
 
     private int encode(final long correlationId, final AuctionBook.Result result)

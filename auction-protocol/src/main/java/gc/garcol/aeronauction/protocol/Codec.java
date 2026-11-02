@@ -17,6 +17,10 @@ import gc.garcol.aeronauction.protocol.sbe.MessageHeaderDecoder;
 import gc.garcol.aeronauction.protocol.sbe.MessageHeaderEncoder;
 import gc.garcol.aeronauction.protocol.sbe.PlaceBidDecoder;
 import gc.garcol.aeronauction.protocol.sbe.PlaceBidEncoder;
+import gc.garcol.aeronauction.protocol.sbe.ReadHelloDecoder;
+import gc.garcol.aeronauction.protocol.sbe.ReadHelloEncoder;
+import gc.garcol.aeronauction.protocol.sbe.ReadReadyDecoder;
+import gc.garcol.aeronauction.protocol.sbe.ReadReadyEncoder;
 import gc.garcol.aeronauction.protocol.sbe.ReplyStatus;
 import gc.garcol.aeronauction.protocol.sbe.SnapshotAuctionDecoder;
 import gc.garcol.aeronauction.protocol.sbe.SnapshotAuctionEncoder;
@@ -56,6 +60,16 @@ public final class Codec
     }
 
     /**
+     * Stream that carries reads to a node, outside the replicated log.
+     */
+    public static final int READ_REQUEST_STREAM_ID = 1101;
+
+    /**
+     * Stream that carries read replies back to a client.
+     */
+    public static final int READ_REPLY_STREAM_ID = 1102;
+
+    /**
      * Upper bound on the encoded length of any message.
      */
     public static final int MAX_MESSAGE_LENGTH = 128;
@@ -69,6 +83,10 @@ public final class Codec
     private final PlaceBidDecoder bidDecoder = new PlaceBidDecoder();
     private final GetAuctionEncoder getEncoder = new GetAuctionEncoder();
     private final GetAuctionDecoder getDecoder = new GetAuctionDecoder();
+    private final ReadHelloEncoder readHelloEncoder = new ReadHelloEncoder();
+    private final ReadHelloDecoder readHelloDecoder = new ReadHelloDecoder();
+    private final ReadReadyEncoder readReadyEncoder = new ReadReadyEncoder();
+    private final ReadReadyDecoder readReadyDecoder = new ReadReadyDecoder();
     private final ListAuctionsEncoder listEncoder = new ListAuctionsEncoder();
     private final ListAuctionsDecoder listDecoder = new ListAuctionsDecoder();
     private final AuctionPageReplyEncoder pageEncoder = new AuctionPageReplyEncoder();
@@ -180,6 +198,90 @@ public final class Codec
             .status(reply.status());
         write(replyEncoder.auction(), reply.auction());
         return HEADER_LENGTH + replyEncoder.encodedLength();
+    }
+
+    /**
+     * Encodes a read channel hello at the start of the buffer.
+     *
+     * @param replyChannel where the leader should send replies.
+     * @param buffer to write to.
+     * @return the number of bytes written.
+     */
+    public int encodeReadHello(final String replyChannel, final MutableDirectBuffer buffer)
+    {
+        return HEADER_LENGTH + readHelloEncoder.wrapAndApplyHeader(buffer, 0, headerEncoder)
+            .replyChannel(replyChannel)
+            .encodedLength();
+    }
+
+    /**
+     * Says whether a message is a read channel hello.
+     *
+     * @param buffer to read from.
+     * @param offset of the message.
+     * @param length of the message.
+     * @return true if it is.
+     */
+    public boolean isReadHello(final DirectBuffer buffer, final int offset, final int length)
+    {
+        return wrapHeader(buffer, offset, length) == ReadHelloDecoder.TEMPLATE_ID;
+    }
+
+    /**
+     * Decodes a read channel hello.
+     *
+     * @param buffer to read from.
+     * @param offset of the message.
+     * @param length of the message.
+     * @return where the leader should send replies.
+     */
+    public String decodeReadHello(final DirectBuffer buffer, final int offset, final int length)
+    {
+        wrapHeader(buffer, offset, length);
+        readHelloDecoder.wrap(buffer, offset + HEADER_LENGTH, headerDecoder.blockLength(), headerDecoder.version());
+        return readHelloDecoder.replyChannel();
+    }
+
+    /**
+     * Encodes a read channel acknowledgement at the start of the buffer.
+     *
+     * @param nodeId of the leader sending it.
+     * @param buffer to write to.
+     * @return the number of bytes written.
+     */
+    public int encodeReadReady(final int nodeId, final MutableDirectBuffer buffer)
+    {
+        return HEADER_LENGTH + readReadyEncoder.wrapAndApplyHeader(buffer, 0, headerEncoder)
+            .nodeId(nodeId)
+            .encodedLength();
+    }
+
+    /**
+     * Says whether a message is a read channel acknowledgement.
+     *
+     * @param buffer to read from.
+     * @param offset of the message.
+     * @param length of the message.
+     * @return true if it is.
+     */
+    public boolean isReadReady(final DirectBuffer buffer, final int offset, final int length)
+    {
+        return wrapHeader(buffer, offset, length) == ReadReadyDecoder.TEMPLATE_ID;
+    }
+
+    /**
+     * Decodes a read channel acknowledgement.
+     *
+     * @param buffer to read from.
+     * @param offset of the message.
+     * @param length of the message.
+     * @return the ID of the leader that sent it.
+     */
+    public int decodeReadReady(final DirectBuffer buffer, final int offset, final int length)
+    {
+        wrapHeader(buffer, offset, length);
+        readReadyDecoder.wrap(buffer, offset + HEADER_LENGTH, headerDecoder.blockLength(), headerDecoder.version());
+        return readReadyDecoder.nodeId();
     }
 
     /**

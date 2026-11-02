@@ -27,10 +27,11 @@ public class AuctionNodeConfig
         @Value("${auction.node-id}") final int nodeId,
         @Value("${auction.cluster-members}") final String clusterMembers,
         @Value("${auction.cluster-dir}") final File clusterDir,
-        @Value("${auction.aeron-dir}") final String aeronDir)
+        @Value("${auction.aeron-dir}") final String aeronDir,
+        @Value("${auction.read-endpoint}") final String readEndpoint)
     {
         final AuctionNode node = AuctionNode.start(
-            new AuctionNode.Config(nodeId, clusterMembers, clusterDir, aeronDir),
+            new AuctionNode.Config(nodeId, clusterMembers, clusterDir, aeronDir, readEndpoint),
             new NodeMetrics(registry),
             exitOnce(context));
         LOG.info("node {} started", nodeId);

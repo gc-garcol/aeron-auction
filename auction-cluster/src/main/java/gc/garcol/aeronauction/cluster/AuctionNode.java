@@ -18,7 +18,7 @@ import java.util.concurrent.TimeUnit;
  */
 final class AuctionNode implements AutoCloseable
 {
-    record Config(int nodeId, String clusterMembers, File baseDir, String aeronDir)
+    record Config(int nodeId, String clusterMembers, File baseDir, String aeronDir, String readEndpoint)
     {
     }
 
@@ -27,15 +27,18 @@ final class AuctionNode implements AutoCloseable
     private static final long STARTUP_CANVASS_TIMEOUT_NS = TimeUnit.SECONDS.toNanos(20);
 
     private final NodeMetrics metrics;
+    private final ReadChannel readChannel;
     private final ClusteredMediaDriver clusteredMediaDriver;
     private final ClusteredServiceContainer container;
 
     private AuctionNode(
         final NodeMetrics metrics,
+        final ReadChannel readChannel,
         final ClusteredMediaDriver clusteredMediaDriver,
         final ClusteredServiceContainer container)
     {
         this.metrics = metrics;
+        this.readChannel = readChannel;
         this.clusteredMediaDriver = clusteredMediaDriver;
         this.container = container;
     }
@@ -81,25 +84,28 @@ final class AuctionNode implements AutoCloseable
             .archiveContext(archiveClient.clone());
 
         ClusteredMediaDriver clusteredMediaDriver = null;
+        ReadChannel readChannel = null;
         try
         {
             clusteredMediaDriver = ClusteredMediaDriver.launch(driverContext, archiveContext, consensusContext);
 
+            readChannel = new ReadChannel(config.aeronDir(), config.readEndpoint(), config.nodeId(), metrics);
+
             final ClusteredServiceContainer.Context serviceContext = new ClusteredServiceContainer.Context()
                 .aeronDirectoryName(config.aeronDir())
                 .clusterDir(clusterDir)
-                .clusteredService(new AuctionService(metrics))
+                .clusteredService(new AuctionService(metrics, readChannel))
                 .terminationHook(terminationHook)
                 .archiveContext(archiveClient.clone());
 
             final ClusteredServiceContainer container = ClusteredServiceContainer.launch(serviceContext);
 
             metrics.connect(config.aeronDir());
-            return new AuctionNode(metrics, clusteredMediaDriver, container);
+            return new AuctionNode(metrics, readChannel, clusteredMediaDriver, container);
         }
         catch (final RuntimeException ex)
         {
-            CloseHelper.quietCloseAll(metrics, clusteredMediaDriver);
+            CloseHelper.quietCloseAll(metrics, readChannel, clusteredMediaDriver);
             throw ex;
         }
     }
@@ -107,7 +113,7 @@ final class AuctionNode implements AutoCloseable
     @Override
     public void close()
     {
-        CloseHelper.closeAll(metrics, container, clusteredMediaDriver);
+        CloseHelper.closeAll(metrics, container, readChannel, clusteredMediaDriver);
     }
 
     private static String memberHost(final String members, final int nodeId)

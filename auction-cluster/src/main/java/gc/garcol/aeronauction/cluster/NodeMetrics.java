@@ -116,6 +116,11 @@ final class NodeMetrics implements AutoCloseable
         }
     }
 
+    void onChannelRead(final String result)
+    {
+        registry.counter("auction.read.channel.requests", "result", result).increment();
+    }
+
     void onStateChanged(final int open, final long timers)
     {
         openAuctions.set(open);

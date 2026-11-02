@@ -62,6 +62,7 @@ public final class ClusterRpcAgent implements Agent, EgressListener
     private final AtomicInteger pendingGauge = new AtomicInteger();
     private final Counter reconnects;
 
+    private ClusterReadChannel readChannel;
     private AeronCluster.AsyncConnect asyncConnect;
     private AeronCluster cluster;
     private long nextCorrelationId = 1;
@@ -94,6 +95,16 @@ public final class ClusterRpcAgent implements Agent, EgressListener
             TimeUnit.MILLISECONDS, System.currentTimeMillis(), TICK_RESOLUTION_MS, TICKS_PER_WHEEL);
         this.reconnects = registry.counter("auction.client.reconnects");
         registry.gauge("auction.rpc.pending", pendingGauge);
+    }
+
+    /**
+     * Sends reads over a read channel when it's ready, instead of through the log. Call this before the agent starts.
+     *
+     * @param readChannel to use, which this agent then owns.
+     */
+    void useReadChannel(final ClusterReadChannel readChannel)
+    {
+        this.readChannel = readChannel;
     }
 
     /**
@@ -132,6 +143,10 @@ public final class ClusterRpcAgent implements Agent, EgressListener
         }
         else
         {
+            if (readChannel != null)
+            {
+                work += readChannel.doWork(nowMs, cluster.leaderMemberId());
+            }
             work += queue.drain(request -> send(request, nowMs), MAX_SENDS_PER_CYCLE);
             work += cluster.pollEgress();
             if (nowMs >= nextKeepAliveMs && !cluster.isClosed())
@@ -151,6 +166,24 @@ public final class ClusterRpcAgent implements Agent, EgressListener
         final int offset,
         final int length,
         final Header header)
+    {
+        onReply(message, offset, length);
+    }
+
+    /**
+     * Handles a reply that came through the read channel.
+     *
+     * @param message holding the reply.
+     * @param offset of the reply.
+     * @param length of the reply.
+     * @param header of the fragment.
+     */
+    void onReadReply(final DirectBuffer message, final int offset, final int length, final Header header)
+    {
+        onReply(message, offset, length);
+    }
+
+    private void onReply(final DirectBuffer message, final int offset, final int length)
     {
         final Reply reply = codec.decodeReply(message, offset, length);
         final Pending completed = pending.remove(reply.correlationId());
@@ -176,7 +209,7 @@ public final class ClusterRpcAgent implements Agent, EgressListener
     {
         failAllPending();
         queue.drain(request -> fail(request, RpcFailure.Kind.UNAVAILABLE, "shutdown", "client is shutting down"));
-        CloseHelper.quietCloseAll(asyncConnect, cluster);
+        CloseHelper.quietCloseAll(asyncConnect, cluster, readChannel);
         connected = false;
     }
 
@@ -184,7 +217,14 @@ public final class ClusterRpcAgent implements Agent, EgressListener
     {
         final long correlationId = nextCorrelationId++;
         final int length = codec.encode(request.command(), correlationId, buffer);
-        if (cluster.offer(buffer, 0, length) < 0)
+        final boolean isRead = request.command() instanceof Command.GetAuction ||
+            request.command() instanceof Command.ListAuctions;
+        final boolean sentOnReadChannel = isRead && readChannel != null && readChannel.offer(buffer, length);
+        if (isRead)
+        {
+            registry.counter("auction.rpc.reads", "route", sentOnReadChannel ? "read_channel" : "log").increment();
+        }
+        if (!sentOnReadChannel && cluster.offer(buffer, 0, length) < 0)
         {
             fail(request, RpcFailure.Kind.UNAVAILABLE, "back_pressure", "cluster is unavailable or back-pressured");
             return;

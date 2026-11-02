@@ -38,7 +38,10 @@ public class ClusterRpcConfig
         final MeterRegistry registry,
         @Value("${auction.ingress-endpoints}") final String ingressEndpoints,
         @Value("${auction.egress-host}") final String egressHost,
-        @Value("${auction.rpc-timeout-ms}") final long rpcTimeoutMs)
+        @Value("${auction.rpc-timeout-ms}") final long rpcTimeoutMs,
+        @Value("${auction.read-endpoints}") final String readEndpoints,
+        @Value("${auction.read-reply-endpoint}") final String readReplyEndpoint,
+        @Value("${auction.reads-through-log}") final boolean readsThroughLog)
     {
         final AeronCluster.Context context = new AeronCluster.Context()
             .aeronDirectoryName(mediaDriver.aeronDirectoryName())
@@ -47,7 +50,13 @@ public class ClusterRpcConfig
             .egressChannel("aeron:udp?endpoint=" + egressHost + ":0")
             .messageTimeoutNs(TimeUnit.SECONDS.toNanos(5));
 
-        return new ClusterRpcAgent(context, rpcTimeoutMs, registry);
+        final ClusterRpcAgent agent = new ClusterRpcAgent(context, rpcTimeoutMs, registry);
+        if (!readsThroughLog)
+        {
+            agent.useReadChannel(new ClusterReadChannel(
+                mediaDriver.aeronDirectoryName(), readEndpoints, readReplyEndpoint, agent::onReadReply));
+        }
+        return agent;
     }
 
     @Bean(destroyMethod = "close")

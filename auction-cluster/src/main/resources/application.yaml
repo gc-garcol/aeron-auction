@@ -11,6 +11,7 @@ auction:
   cluster-members: ${CLUSTER_MEMBERS}
   cluster-dir: ${CLUSTER_DIR}
   aeron-dir: ${AERON_DIR}
+  read-endpoint: ${READ_ENDPOINT}
 
 management:
   endpoints:

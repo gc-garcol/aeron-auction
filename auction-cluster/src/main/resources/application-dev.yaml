@@ -5,3 +5,4 @@ auction:
   cluster-members: ${CLUSTER_MEMBERS:0,localhost:20001,localhost:20002,localhost:20003,localhost:20004,localhost:20005}
   cluster-dir: ${CLUSTER_DIR:${java.io.tmpdir}/auction-dev/node/data}
   aeron-dir: ${AERON_DIR:${java.io.tmpdir}/auction-dev/node/aeron}
+  read-endpoint: ${READ_ENDPOINT:localhost:20006}

@@ -10,6 +10,9 @@ auction:
   aeron-dir: ${AERON_DIR}
   ingress-endpoints: ${INGRESS_ENDPOINTS}
   egress-host: ${EGRESS_HOST}
+  read-endpoints: ${READ_ENDPOINTS}
+  read-reply-endpoint: ${READ_REPLY_ENDPOINT}
+  reads-through-log: ${READS_THROUGH_LOG:false} # true sends reads through the replicated log, as they used to
   rpc-timeout-ms: ${RPC_TIMEOUT_MS:2000}
 
 management:
