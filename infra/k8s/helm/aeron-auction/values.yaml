@@ -1,0 +1,129 @@
+# Kubernetes DNS suffix. Cluster members reach each other by <pod>.<headless-svc>.<ns>.svc.<clusterDomain>.
+clusterDomain: cluster.local
+
+imagePullSecrets: []
+
+cluster:
+  # Number of cluster members. Must be odd. Don't change it for an existing log: the member list is static,
+  # and adding or removing members needs Aeron's dynamic join / ClusterTool, not a scale.
+  replicas: 3
+
+  image:
+    repository: aeron-auction/cluster
+    tag: "" # defaults to the chart's appVersion
+    pullPolicy: IfNotPresent
+
+  # Matches the Dockerfile's ENTRYPOINT; NODE_ID is taken from the pod ordinal before Java starts.
+  javaOpts: "--add-opens java.base/jdk.internal.misc=ALL-UNNAMED"
+  # JVM memory flags. The heap plus /dev/shm (counted as memory) must stay under resources.limits.memory.
+  javaToolOptions: "-XX:MaxRAMPercentage=35 -XX:+ExitOnOutOfMemoryError"
+
+  ports:
+    http: 9100 # actuator: health and prometheus
+    ingress: 9002
+    consensus: 9003
+    log: 9004
+    catchup: 9005
+    read: 9006
+    archive: 8010
+
+  # Size of /dev/shm, a memory-backed emptyDir. The Docker default of 64MB is too small for Aeron's log buffers.
+  shmSize: 1Gi
+
+  persistence:
+    size: 10Gi
+    storageClass: "" # "" uses the cluster's default StorageClass
+    accessModes: [ ReadWriteOnce ]
+
+  resources:
+    requests:
+      cpu: "1"
+      memory: 3Gi
+    limits:
+      memory: 3Gi
+
+  # Waits this long after a pod is ready before the rolling update moves to the next member.
+  minReadySeconds: 15
+  terminationGracePeriodSeconds: 30
+
+  # "hard" puts every member on a different Kubernetes node; needs at least 3 schedulable nodes.
+  # "soft" prefers it but still schedules on fewer nodes.
+  podAntiAffinity: hard
+
+  pdb:
+    enabled: true
+    maxUnavailable: 1 # keeps a quorum of 2 out of 3 through voluntary disruptions
+
+  extraEnv: []
+  # Name of a Secret in the release namespace whose keys become env vars, e.g. one that External Secrets Operator
+  # syncs from Vault. The chart never creates it. The pods don't start until it exists.
+  existingSecret: ""
+  nodeSelector: {}
+  tolerations: []
+  podAnnotations: {}
+
+client:
+  replicas: 2
+
+  image:
+    repository: aeron-auction/client
+    tag: ""
+    pullPolicy: IfNotPresent
+
+  javaToolOptions: "-XX:MaxRAMPercentage=50 -XX:+ExitOnOutOfMemoryError"
+
+  ports:
+    http: 8080
+    readReply: 9007
+
+  shmSize: 256Mi
+
+  # Sends reads through the replicated log instead of the leader's read channel.
+  readsThroughLog: false
+  rpcTimeoutMs: 2000
+
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1536Mi
+    limits:
+      memory: 1536Mi
+
+  terminationGracePeriodSeconds: 30
+  # "soft" spreads the pods over Kubernetes nodes when it can; "hard" requires it.
+  podAntiAffinity: soft
+
+  pdb:
+    enabled: true
+    minAvailable: 1
+
+  service:
+    type: ClusterIP
+    port: 8080
+
+  ingress:
+    enabled: false
+    className: ""
+    annotations: {}
+    hosts:
+      - host: auction.local
+        paths:
+          - path: /
+            pathType: Prefix
+    tls: []
+
+  extraEnv: []
+  # Same as cluster.existingSecret.
+  existingSecret: ""
+  nodeSelector: {}
+  tolerations: []
+  podAnnotations: {}
+
+metrics:
+  # Adds prometheus.io/* annotations to the pods.
+  podAnnotations: true
+  # Creates ServiceMonitors for the Prometheus Operator.
+  serviceMonitor:
+    enabled: false
+    interval: 5s
+    labels: {}

@@ -1,0 +1,145 @@
+{{- $replicas := int .Values.cluster.replicas }}
+{{- if or (lt $replicas 1) (eq (mod $replicas 2) 0) }}
+{{- fail "cluster.replicas must be an odd number (1, 3, 5, ...)" }}
+{{- end }}
+{{- $p := .Values.cluster.ports }}
+{{- $domain := include "aeron-auction.cluster.domain" . }}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "aeron-auction.cluster.name" . }}
+  labels:
+    {{- include "aeron-auction.labels" . | nindent 4 }}
+    app.kubernetes.io/component: cluster
+spec:
+  serviceName: {{ include "aeron-auction.cluster.headless" . }}
+  replicas: {{ $replicas }}
+  # All members must start together: none of them is ready to lead until a quorum is up.
+  podManagementPolicy: Parallel
+  minReadySeconds: {{ .Values.cluster.minReadySeconds }}
+  updateStrategy:
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      {{- include "aeron-auction.cluster.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "aeron-auction.labels" . | nindent 8 }}
+        app.kubernetes.io/component: cluster
+      annotations:
+        {{- if .Values.metrics.podAnnotations }}
+        prometheus.io/scrape: "true"
+        prometheus.io/port: {{ $p.http | quote }}
+        prometheus.io/path: /actuator/prometheus
+        {{- end }}
+        {{- with .Values.cluster.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      terminationGracePeriodSeconds: {{ .Values.cluster.terminationGracePeriodSeconds }}
+      affinity:
+        {{- include "aeron-auction.antiAffinity" (list .Values.cluster.podAntiAffinity (include "aeron-auction.cluster.selectorLabels" .)) | nindent 8 }}
+      {{- with .Values.cluster.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.cluster.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      initContainers:
+        # Aeron binds to the address its own member name resolves to, so wait until DNS has it.
+        - name: wait-for-dns
+          image: "{{ .Values.cluster.image.repository }}:{{ .Values.cluster.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.cluster.image.pullPolicy }}
+          command:
+            - sh
+            - -c
+            - until getent hosts "${HOSTNAME}.{{ $domain }}"; do echo "waiting for DNS"; sleep 1; done
+          resources:
+            requests: { cpu: 10m, memory: 32Mi }
+            limits: { memory: 64Mi }
+      containers:
+        - name: node
+          image: "{{ .Values.cluster.image.repository }}:{{ .Values.cluster.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.cluster.image.pullPolicy }}
+          command:
+            - sh
+            - -c
+            - export NODE_ID="${HOSTNAME##*-}"; exec java {{ .Values.cluster.javaOpts }} -jar app.jar
+          env:
+            - name: POD_NAME
+              valueFrom: { fieldRef: { fieldPath: metadata.name } }
+            - name: CLUSTER_MEMBERS
+              value: {{ include "aeron-auction.cluster.members" . | quote }}
+            - name: READ_ENDPOINT
+              value: "$(POD_NAME).{{ $domain }}:{{ $p.read }}"
+            - name: CLUSTER_DIR
+              value: /data
+            - name: AERON_DIR
+              value: /dev/shm/aeron
+            - name: SERVER_PORT
+              value: {{ $p.http | quote }}
+            - name: JAVA_TOOL_OPTIONS
+              value: {{ .Values.cluster.javaToolOptions | quote }}
+            - name: MANAGEMENT_ENDPOINT_HEALTH_PROBES_ENABLED
+              value: "true"
+            {{- with .Values.cluster.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          {{- with .Values.cluster.existingSecret }}
+          # Every key becomes an env var. A key that is also set under env above loses to it.
+          envFrom:
+            - secretRef:
+                name: {{ . }}
+          {{- end }}
+          ports:
+            - { name: http, containerPort: {{ $p.http }}, protocol: TCP }
+            - { name: ingress, containerPort: {{ $p.ingress }}, protocol: UDP }
+            - { name: consensus, containerPort: {{ $p.consensus }}, protocol: UDP }
+            - { name: log, containerPort: {{ $p.log }}, protocol: UDP }
+            - { name: catchup, containerPort: {{ $p.catchup }}, protocol: UDP }
+            - { name: read, containerPort: {{ $p.read }}, protocol: UDP }
+            - { name: archive, containerPort: {{ $p.archive }}, protocol: UDP }
+          startupProbe:
+            httpGet: { path: /actuator/health/liveness, port: http }
+            periodSeconds: 5
+            failureThreshold: 60
+          livenessProbe:
+            httpGet: { path: /actuator/health/liveness, port: http }
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 6
+          readinessProbe:
+            httpGet: { path: /actuator/health/readiness, port: http }
+            periodSeconds: 5
+            timeoutSeconds: 3
+          resources:
+            {{- toYaml .Values.cluster.resources | nindent 12 }}
+          volumeMounts:
+            - { name: data, mountPath: /data }
+            - { name: shm, mountPath: /dev/shm }
+      volumes:
+        - name: shm
+          emptyDir:
+            medium: Memory
+            sizeLimit: {{ .Values.cluster.shmSize }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+        labels:
+          {{- include "aeron-auction.cluster.selectorLabels" . | nindent 10 }}
+      spec:
+        accessModes:
+          {{- toYaml .Values.cluster.persistence.accessModes | nindent 10 }}
+        {{- with .Values.cluster.persistence.storageClass }}
+        storageClassName: {{ . }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.cluster.persistence.size }}

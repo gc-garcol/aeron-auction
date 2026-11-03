@@ -2,8 +2,8 @@ name: aeron-auction
 
 x-node: &node
   build:
-    context: ..
-    dockerfile: deploy/Dockerfile.cluster
+    context: ../..
+    dockerfile: infra/docker/Dockerfile.cluster
   image: aeron-auction/cluster
   shm_size: 1g # the default 64MB is too small for Aeron's log buffers
   restart: on-failure # a crashed node retries until Aeron accepts its old mark files as stale
@@ -48,8 +48,8 @@ services:
 
   client:
     build:
-      context: ..
-      dockerfile: deploy/Dockerfile.client
+      context: ../..
+      dockerfile: infra/docker/Dockerfile.client
     image: aeron-auction/client
     hostname: client
     shm_size: 256m

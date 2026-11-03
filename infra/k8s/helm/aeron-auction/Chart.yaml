@@ -1,0 +1,7 @@
+apiVersion: v2
+name: aeron-auction
+description: Auction REST API in front of a 3-node Aeron Cluster
+type: application
+version: 0.1.0
+appVersion: "0.0.1-SNAPSHOT"
+kubeVersion: ">=1.25.0-0"

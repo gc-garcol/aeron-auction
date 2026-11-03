@@ -1,0 +1,23 @@
+{{- $p := .Values.cluster.ports }}
+# Gives each member a stable DNS name. publishNotReadyAddresses makes the names resolve before the pods are ready,
+# because members have to find each other to elect a leader in the first place.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "aeron-auction.cluster.headless" . }}
+  labels:
+    {{- include "aeron-auction.labels" . | nindent 4 }}
+    app.kubernetes.io/component: cluster
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true
+  selector:
+    {{- include "aeron-auction.cluster.selectorLabels" . | nindent 4 }}
+  ports:
+    - { name: http, port: {{ $p.http }}, targetPort: http, protocol: TCP }
+    - { name: ingress, port: {{ $p.ingress }}, targetPort: ingress, protocol: UDP }
+    - { name: consensus, port: {{ $p.consensus }}, targetPort: consensus, protocol: UDP }
+    - { name: log, port: {{ $p.log }}, targetPort: log, protocol: UDP }
+    - { name: catchup, port: {{ $p.catchup }}, targetPort: catchup, protocol: UDP }
+    - { name: read, port: {{ $p.read }}, targetPort: read, protocol: UDP }
+    - { name: archive, port: {{ $p.archive }}, targetPort: archive, protocol: UDP }

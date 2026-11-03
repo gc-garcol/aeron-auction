@@ -1,0 +1,34 @@
+# Overrides for a small local cluster (Docker Desktop, kind, OrbStack, minikube) with one or two worker nodes
+# and about 4GB of memory. Use with: helm install ... -f values-local.yaml
+cluster:
+  image:
+    tag: latest
+    pullPolicy: Never # images are loaded straight into the node, see readme.k8s.md
+  podAntiAffinity: soft # all 3 members may share one node; there is no real failover across machines then
+  javaToolOptions: "-XX:MaxRAMPercentage=30 -XX:+ExitOnOutOfMemoryError"
+  shmSize: 384Mi
+  persistence:
+    size: 1Gi
+  resources:
+    requests:
+      cpu: 100m
+      memory: 640Mi
+    limits:
+      memory: 1Gi
+
+client:
+  image:
+    tag: latest
+    pullPolicy: Never
+  javaToolOptions: "-XX:MaxRAMPercentage=40 -XX:+ExitOnOutOfMemoryError"
+  shmSize: 128Mi
+  # Docker Desktop and OrbStack publish a LoadBalancer Service on localhost, so the API is at http://localhost:8080
+  # without a port-forward. minikube needs `minikube tunnel`; plain kind needs cloud-provider-kind.
+  service:
+    type: LoadBalancer
+  resources:
+    requests:
+      cpu: 100m
+      memory: 384Mi
+    limits:
+      memory: 640Mi

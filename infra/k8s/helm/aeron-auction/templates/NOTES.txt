@@ -1,0 +1,10 @@
+Aeron Auction: {{ .Values.cluster.replicas }} cluster members, {{ .Values.client.replicas }} client pods.
+
+Watch the members elect a leader:
+  kubectl -n {{ .Release.Namespace }} get pods -l app.kubernetes.io/instance={{ .Release.Name }} -w
+
+Open the API and web UI:
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "aeron-auction.client.name" . }} 8080:{{ .Values.client.service.port }}
+  open http://localhost:8080   # Swagger: http://localhost:8080/swagger-ui.html
+
+Client pods report not ready until they have a cluster session.

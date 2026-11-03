@@ -18,11 +18,14 @@ You need Java 25 and Docker.
 
 ```bash
 ./mvnw clean package
-docker compose -f deploy/docker-compose.yml up -d --build
-./deploy/demo.sh
+docker compose -f infra/docker/docker-compose.yml up -d --build
+./infra/demo.sh
 ```
 
 `demo.sh` runs one auction: it creates it, places bids, waits for the deadline, and reads the winner.
+
+The Docker files are in `infra/docker/`. To run on Kubernetes with Helm instead, see
+[readme.k8s.md](readme.k8s.md).
 
 | URL                                   | What                                                                        |
 |---------------------------------------|-----------------------------------------------------------------------------|
@@ -33,7 +36,7 @@ docker compose -f deploy/docker-compose.yml up -d --build
 | http://localhost:3000                 | Grafana, which opens on the Aeron Auction dashboard                         |
 | http://localhost:9090                 | Prometheus                                                                  |
 
-Stop with `docker compose -f deploy/docker-compose.yml down`. Add `-v` to delete the cluster's data as well.
+Stop with `docker compose -f infra/docker/docker-compose.yml down`. Add `-v` to delete the cluster's data as well.
 
 ## Dev mode: one node
 
@@ -53,7 +56,7 @@ java --add-opens java.base/jdk.internal.misc=ALL-UNNAMED \
   -jar auction-cluster/target/auction-cluster-0.0.1-SNAPSHOT.jar --spring.profiles.active=dev
 java --add-opens java.base/jdk.internal.misc=ALL-UNNAMED \
   -jar auction-client/target/auction-client-0.0.1-SNAPSHOT.jar --spring.profiles.active=dev
-./deploy/demo.sh
+./infra/demo.sh
 ```
 
 In IntelliJ, choose **aeron-auction (dev)** from the run configurations and press Run or Debug. It starts both apps with
@@ -75,9 +78,9 @@ ports clash. Its data is kept separately.
 
 ```bash
 ./mvnw clean package
-docker compose -f deploy/docker-compose.dev.yml up -d --build
-./deploy/demo.sh
-docker compose -f deploy/docker-compose.dev.yml down   # add -v to delete the data
+docker compose -f infra/docker/docker-compose.dev.yml up -d --build
+./infra/demo.sh
+docker compose -f infra/docker/docker-compose.dev.yml down   # add -v to delete the data
 ```
 
 ## API
@@ -131,7 +134,7 @@ so every request adds to the log on disk. Create some auctions first, or the pag
 ## Try breaking it
 
 ```bash
-cd deploy
+cd infra/docker
 
 # Kill the leader. Find it on the Grafana "Node role" panel. Requests fail for a few seconds, then recover.
 docker compose kill node0

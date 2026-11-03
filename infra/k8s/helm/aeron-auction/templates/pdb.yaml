@@ -1,0 +1,29 @@
+{{- if .Values.cluster.pdb.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "aeron-auction.cluster.name" . }}
+  labels:
+    {{- include "aeron-auction.labels" . | nindent 4 }}
+    app.kubernetes.io/component: cluster
+spec:
+  maxUnavailable: {{ .Values.cluster.pdb.maxUnavailable }}
+  selector:
+    matchLabels:
+      {{- include "aeron-auction.cluster.selectorLabels" . | nindent 6 }}
+{{- end }}
+{{- if .Values.client.pdb.enabled }}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "aeron-auction.client.name" . }}
+  labels:
+    {{- include "aeron-auction.labels" . | nindent 4 }}
+    app.kubernetes.io/component: client
+spec:
+  minAvailable: {{ .Values.client.pdb.minAvailable }}
+  selector:
+    matchLabels:
+      {{- include "aeron-auction.client.selectorLabels" . | nindent 6 }}
+{{- end }}

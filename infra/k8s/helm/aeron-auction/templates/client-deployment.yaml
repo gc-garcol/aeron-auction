@@ -1,0 +1,113 @@
+{{- $p := .Values.client.ports }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "aeron-auction.client.name" . }}
+  labels:
+    {{- include "aeron-auction.labels" . | nindent 4 }}
+    app.kubernetes.io/component: client
+spec:
+  replicas: {{ .Values.client.replicas }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      {{- include "aeron-auction.client.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "aeron-auction.labels" . | nindent 8 }}
+        app.kubernetes.io/component: client
+      annotations:
+        {{- if .Values.metrics.podAnnotations }}
+        prometheus.io/scrape: "true"
+        prometheus.io/port: {{ $p.http | quote }}
+        prometheus.io/path: /actuator/prometheus
+        {{- end }}
+        {{- with .Values.client.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      terminationGracePeriodSeconds: {{ .Values.client.terminationGracePeriodSeconds }}
+      affinity:
+        {{- include "aeron-auction.antiAffinity" (list .Values.client.podAntiAffinity (include "aeron-auction.client.selectorLabels" .)) | nindent 8 }}
+      {{- with .Values.client.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.client.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: client
+          image: "{{ .Values.client.image.repository }}:{{ .Values.client.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.client.image.pullPolicy }}
+          env:
+            # The cluster sends egress and read replies straight back to this pod, so it advertises its own IP.
+            - name: POD_IP
+              valueFrom: { fieldRef: { fieldPath: status.podIP } }
+            - name: EGRESS_HOST
+              value: "$(POD_IP)"
+            - name: READ_REPLY_ENDPOINT
+              value: "$(POD_IP):{{ $p.readReply }}"
+            - name: INGRESS_ENDPOINTS
+              value: {{ include "aeron-auction.cluster.endpoints" (list . .Values.cluster.ports.ingress) | quote }}
+            - name: READ_ENDPOINTS
+              value: {{ include "aeron-auction.cluster.endpoints" (list . .Values.cluster.ports.read) | quote }}
+            - name: READS_THROUGH_LOG
+              value: {{ .Values.client.readsThroughLog | quote }}
+            - name: RPC_TIMEOUT_MS
+              value: {{ .Values.client.rpcTimeoutMs | quote }}
+            - name: AERON_DIR
+              value: /dev/shm/aeron
+            - name: SERVER_PORT
+              value: {{ $p.http | quote }}
+            - name: JAVA_TOOL_OPTIONS
+              value: {{ .Values.client.javaToolOptions | quote }}
+            - name: MANAGEMENT_ENDPOINT_HEALTH_PROBES_ENABLED
+              value: "true"
+            # Take a pod out of the Service while it has no cluster session, but don't restart it for that.
+            - name: MANAGEMENT_ENDPOINT_HEALTH_GROUP_READINESS_INCLUDE
+              value: readinessState,cluster
+            {{- with .Values.client.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          {{- with .Values.client.existingSecret }}
+          # Every key becomes an env var. A key that is also set under env above loses to it.
+          envFrom:
+            - secretRef:
+                name: {{ . }}
+          {{- end }}
+          ports:
+            - { name: http, containerPort: {{ $p.http }}, protocol: TCP }
+            - { name: read-reply, containerPort: {{ $p.readReply }}, protocol: UDP }
+          startupProbe:
+            httpGet: { path: /actuator/health/liveness, port: http }
+            periodSeconds: 5
+            failureThreshold: 60
+          livenessProbe:
+            httpGet: { path: /actuator/health/liveness, port: http }
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 6
+          readinessProbe:
+            httpGet: { path: /actuator/health/readiness, port: http }
+            periodSeconds: 5
+            timeoutSeconds: 3
+          resources:
+            {{- toYaml .Values.client.resources | nindent 12 }}
+          volumeMounts:
+            - { name: shm, mountPath: /dev/shm }
+      volumes:
+        - name: shm
+          emptyDir:
+            medium: Memory
+            sizeLimit: {{ .Values.client.shmSize }}
