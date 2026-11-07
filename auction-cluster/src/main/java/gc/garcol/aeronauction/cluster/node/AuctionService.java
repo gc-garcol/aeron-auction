@@ -22,6 +22,9 @@ import org.agrona.concurrent.IdleStrategy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.net.InetAddress;
+import java.net.UnknownHostException;
+
 /**
  * The replicated state machine. Everything that changes state happens in a callback and uses only the log's
  * timestamp, so all nodes stay identical. See section 5 of plan.md for the timer rules.
@@ -39,17 +42,23 @@ public final class AuctionService implements ClusteredService
     private final NodeMetrics metrics;
     private final ReadChannel readChannel;
     private final int maxReplyAttempts;
+    private final String memberHost;
 
     private Cluster cluster;
     private IdleStrategy idleStrategy;
     private boolean tickArmed;
     private long lastTimestamp;
 
-    AuctionService(final NodeMetrics metrics, final ReadChannel readChannel, final int maxReplyAttempts)
+    AuctionService(
+        final NodeMetrics metrics,
+        final ReadChannel readChannel,
+        final int maxReplyAttempts,
+        final String memberHost)
     {
         this.metrics = metrics;
         this.readChannel = readChannel;
         this.maxReplyAttempts = maxReplyAttempts;
+        this.memberHost = memberHost;
     }
 
     @Override
@@ -166,6 +175,25 @@ public final class AuctionService implements ClusteredService
     public void onRoleChange(final Cluster.Role newRole)
     {
         metrics.onRoleChange(newRole);
+        if (newRole == Cluster.Role.LEADER)
+        {
+            final int memberId = cluster.memberId();
+            // Resolving the IP can block, so it happens off the service thread.
+            Thread.startVirtualThread(() ->
+                LOG.info("node {} became leader, host={} ip={}", memberId, memberHost, ipOf(memberHost)));
+        }
+    }
+
+    private static String ipOf(final String host)
+    {
+        try
+        {
+            return InetAddress.getByName(host).getHostAddress();
+        }
+        catch (final UnknownHostException ex)
+        {
+            return "unresolved";
+        }
     }
 
     @Override

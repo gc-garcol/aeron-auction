@@ -21,6 +21,10 @@ import org.agrona.concurrent.ManyToOneConcurrentArrayQueue;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.net.InetAddress;
+import java.net.UnknownHostException;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -35,6 +39,7 @@ public final class ClusterRpcAgent implements Agent, EgressListener
 {
     private static final Logger LOG = LoggerFactory.getLogger(ClusterRpcAgent.class);
     private final AeronCluster.Context clusterContext;
+    private final Map<Integer, String> ingressHosts;
     private final long rpcTimeoutMs;
     private final ClusterRpcProperties properties;
     private final MeterRegistry registry;
@@ -80,6 +85,7 @@ public final class ClusterRpcAgent implements Agent, EgressListener
             throw new IllegalArgumentException("auction.rpc.no-correlation must be below 1, as real IDs start at 1");
         }
         this.clusterContext = clusterContext.egressListener(this);
+        this.ingressHosts = parseHosts(clusterContext.ingressEndpoints());
         this.rpcTimeoutMs = rpcTimeoutMs;
         this.properties = properties;
         this.queue = new ManyToOneConcurrentArrayQueue<>(properties.queueCapacity());
@@ -293,8 +299,64 @@ public final class ClusterRpcAgent implements Agent, EgressListener
             reconnects.increment();
         }
         everConnected = true;
-        LOG.info("connected to cluster, session {}", cluster.clusterSessionId());
+        logLeader("connected to cluster, session " + cluster.clusterSessionId(),
+            cluster.leaderMemberId(), cluster.leadershipTermId());
         return 1;
+    }
+
+    @Override
+    public void onNewLeader(
+        final long clusterSessionId,
+        final long leadershipTermId,
+        final int leaderMemberId,
+        final String ingressEndpoints)
+    {
+        logLeader("leader changed", leaderMemberId, leadershipTermId);
+    }
+
+    /**
+     * Logs the leader with its IP. Resolving the IP can block, so it happens off the agent thread.
+     *
+     * @param event            what happened.
+     * @param leaderMemberId   of the leader.
+     * @param leadershipTermId of the leader's term.
+     */
+    private void logLeader(final String event, final int leaderMemberId, final long leadershipTermId)
+    {
+        final String host = ingressHosts.getOrDefault(leaderMemberId, "unknown");
+        Thread.startVirtualThread(() -> LOG.info(
+            "{}: leader is node {}, host={} ip={}, term {}",
+            event, leaderMemberId, host, ipOf(host), leadershipTermId));
+    }
+
+    private static String ipOf(final String host)
+    {
+        try
+        {
+            return InetAddress.getByName(host).getHostAddress();
+        }
+        catch (final UnknownHostException ex)
+        {
+            return "unresolved";
+        }
+    }
+
+    /**
+     * Reads the host of each member from ingress endpoints such as {@code 0=node0:9002,1=node1:9002}.
+     *
+     * @param endpoints the ingress endpoints.
+     * @return each member's host, by member ID.
+     */
+    private static Map<Integer, String> parseHosts(final String endpoints)
+    {
+        final Map<Integer, String> hosts = new HashMap<>();
+        for (final String entry : endpoints.split(","))
+        {
+            final String[] parts = entry.split("=", 2);
+            final String endpoint = parts[1].trim();
+            hosts.put(Integer.parseInt(parts[0].trim()), endpoint.substring(0, endpoint.lastIndexOf(':')));
+        }
+        return hosts;
     }
 
     private void onDisconnected()

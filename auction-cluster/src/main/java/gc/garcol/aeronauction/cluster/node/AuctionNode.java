@@ -84,10 +84,12 @@ final class AuctionNode implements AutoCloseable
             readChannel = new ReadChannel(
                 config.aeronDir(), config.readEndpoint(), config.nodeId(), config.readChannel(), metrics);
 
+            final AuctionService service =
+                new AuctionService(metrics, readChannel, config.node().maxReplyAttempts(), memberHost);
             final ClusteredServiceContainer.Context serviceContext = new ClusteredServiceContainer.Context()
                 .aeronDirectoryName(config.aeronDir())
                 .clusterDir(clusterDir)
-                .clusteredService(new AuctionService(metrics, readChannel, config.node().maxReplyAttempts()))
+                .clusteredService(service)
                 .terminationHook(terminationHook)
                 .archiveContext(archiveClient.clone());
 
