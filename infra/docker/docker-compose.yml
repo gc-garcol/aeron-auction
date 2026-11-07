@@ -59,12 +59,21 @@ services:
       EGRESS_HOST: client
       READ_ENDPOINTS: "0=node0:9006,1=node1:9006,2=node2:9006"
       READ_REPLY_ENDPOINT: client:9007
+      CENTRIFUGO_API_URL: http://centrifugo:8000/api
+      CENTRIFUGO_HTTP_API_KEY: ${CENTRIFUGO_HTTP_API_KEY:-dev-api-key}
+      CENTRIFUGO_WEBSOCKET_URL: ws://localhost:8000/connection/websocket # opened by the browser, not the client
     ports:
       - "8080:8080"
     depends_on:
       - node0
       - node1
       - node2
+      - centrifugo
+
+  centrifugo:
+    extends:
+      file: docker-compose.infra.yml
+      service: centrifugo
 
   prometheus:
     image: prom/prometheus:v3.5.0

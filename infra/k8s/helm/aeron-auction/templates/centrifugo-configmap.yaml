@@ -1,0 +1,32 @@
+{{- if .Values.centrifugo.enabled }}
+{{- $c := .Values.centrifugo }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "aeron-auction.centrifugo.name" . }}
+  labels:
+    {{- include "aeron-auction.labels" . | nindent 4 }}
+    app.kubernetes.io/component: centrifugo
+data:
+  # Secrets (API key, admin password and secret) come from env vars, never from this file.
+  # Browsers connect without a token and may only subscribe. Only the client publishes, through the server API.
+  config.json: |
+    {
+      "client": {
+        "allow_anonymous_connect_without_token": true,
+        "allowed_origins": {{ include "aeron-auction.centrifugo.allowedOrigins" . }}
+      },
+      "channel": {
+        "without_namespace": {
+          "allow_subscribe_for_client": true,
+          "allow_subscribe_for_anonymous": true,
+          "history_size": {{ int $c.historySize }},
+          "history_ttl": {{ $c.historyTtl | quote }},
+          "force_recovery": true
+        }
+      },
+      "admin": { "enabled": true },
+      "health": { "enabled": true },
+      "prometheus": { "enabled": true }
+    }
+{{- end }}

@@ -16,6 +16,19 @@ cluster:
     limits:
       memory: 1Gi
 
+centrifugo:
+  existingSecret: auction-centrifugo # created in readme.k8s.md, step 3
+  # Published on localhost like the client, so the browser connects to it directly.
+  websocketUrl: ws://localhost:8000/connection/websocket
+  service:
+    type: LoadBalancer
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      memory: 128Mi
+
 client:
   image:
     tag: latest

@@ -6,5 +6,10 @@ auction:
   egress-host: ${EGRESS_HOST:localhost}
   read-endpoints: ${READ_ENDPOINTS:0=localhost:20006}
   read-reply-endpoint: ${READ_REPLY_ENDPOINT:localhost:20007}
+  # Matches infra/docker/docker-compose.infra.yml, which runs Centrifugo on localhost:8000.
+  realtime:
+    api-url: ${CENTRIFUGO_API_URL:http://localhost:8000/api}
+    api-key: ${CENTRIFUGO_HTTP_API_KEY:dev-api-key}
+    websocket-url: ${CENTRIFUGO_WEBSOCKET_URL:ws://localhost:8000/connection/websocket}
 
 SERVER_PORT: 8081

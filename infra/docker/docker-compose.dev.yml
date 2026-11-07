@@ -21,6 +21,12 @@ services:
       READ_ENDPOINTS: "0=node0:9006"
     depends_on: !override
       - node0
+      - centrifugo
+
+  centrifugo:
+    extends:
+      file: docker-compose.yml
+      service: centrifugo
 
   prometheus:
     extends:

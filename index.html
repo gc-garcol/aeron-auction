@@ -19,6 +19,7 @@
             --color-muted: #4f5d75;
             --color-accent: #bf4520;
             --color-link: #2e5aa8;
+            --color-live: #2f7d4f;
             --font-sans: 'Geist', system-ui, sans-serif;
             --font-serif: 'Instrument Serif', serif;
             --font-mono: 'Geist Mono', ui-monospace, monospace;
@@ -157,6 +158,10 @@
             color: var(--color-muted);
         }
 
+        .step.live {
+            color: var(--color-live);
+        }
+
         td.lib {
             width: 30%;
             color: var(--color-muted);
@@ -185,12 +190,14 @@
     <h1>Writes go through the log. Reads go straight to the leader.</h1>
 
     <div class="diagram-container">
-        <svg aria-labelledby="aeron-auction-architecture-title aeron-auction-architecture-desc" role="img" viewBox="0 0 1200 576"
+        <svg aria-labelledby="aeron-auction-architecture-title aeron-auction-architecture-desc" role="img" viewBox="0 0 1200 600"
              xmlns="http://www.w3.org/2000/svg">
             <title id="aeron-auction-architecture-title">Aeron Auction high-level architecture</title>
             <desc id="aeron-auction-architecture-desc">HTTP requests reach a Spring Boot client whose RPC agent sends
                 writes through the replicated cluster log and sends reads over a separate Aeron stream to the leader,
-                with both paths meeting at the auction state on the leader node.
+                with both paths meeting at the auction state on the leader node. After a write commits, the client
+                publishes it to Centrifugo's server API, and Centrifugo, in its own namespace, pushes it to the browser over
+                WebSocket as binary protobuf.
             </desc>
             <defs>
                 <marker id="arrow" markerHeight="6" markerWidth="8" orient="auto" refX="7" refY="3">
@@ -201,6 +208,9 @@
                 </marker>
                 <marker id="arrow-link" markerHeight="6" markerWidth="8" orient="auto" refX="7" refY="3">
                     <polygon fill="#2e5aa8" points="0 0, 8 3, 0 6"/>
+                </marker>
+                <marker id="arrow-live" markerHeight="6" markerWidth="8" orient="auto" refX="7" refY="3">
+                    <polygon fill="#2f7d4f" points="0 0, 8 3, 0 6"/>
                 </marker>
             </defs>
 
@@ -244,6 +254,11 @@
             <line marker-end="url(#arrow-link)" stroke="#2e5aa8" stroke-dasharray="5,4" stroke-width="1.2" x1="524" x2="688" y1="128"
                   y2="128"/>
 
+            <!-- Live updates: the client publishes a committed write, Centrifugo pushes it to the browser -->
+            <polyline fill="none" marker-end="url(#arrow-live)" points="240,320 240,436 136,436" stroke="#2f7d4f"
+                      stroke-width="1.4"/>
+            <line marker-end="url(#arrow-live)" stroke="#2f7d4f" stroke-width="1.4" x1="72" x2="72" y1="388" y2="320"/>
+
             <!-- Arrow labels -->
             <g font-family="'Geist Mono', ui-monospace, monospace" font-size="8" letter-spacing="0.06em"
                text-anchor="middle">
@@ -265,6 +280,11 @@
                 <text fill="#2e5aa8" x="604" y="405">R1 REQUEST</text>
                 <rect fill="#f5f5f5" height="12" rx="2" width="48" x="580" y="472"/>
                 <text fill="#2e5aa8" x="604" y="481">R3 REPLY</text>
+
+                <rect fill="#f5f5f5" height="12" rx="2" width="60" x="150" y="430"/>
+                <text fill="#2f7d4f" x="180" y="439">L1 PUBLISH</text>
+                <rect fill="#f5f5f5" height="12" rx="2" width="44" x="50" y="348"/>
+                <text fill="#2f7d4f" x="72" y="357">L2 PUSH</text>
             </g>
             <g font-family="'Geist Mono', ui-monospace, monospace" font-size="8" letter-spacing="0.06em"
                text-anchor="start">
@@ -283,6 +303,25 @@
             </text>
             <text fill="#4f5d75" font-family="'Geist Mono', ui-monospace, monospace" font-size="9" text-anchor="middle" x="72"
                   y="284">web UI, curl
+            </text>
+
+            <!-- Centrifugo, in its own namespace -->
+            <rect fill="#f5f5f5" height="104" rx="6" width="120" x="16" y="388"/>
+            <rect fill="#ffffff" height="104" rx="6" stroke="#2f7d4f" stroke-width="1" width="120" x="16" y="388"/>
+            <text fill="#2d3142" font-family="'Geist', system-ui, sans-serif" font-size="12" font-weight="600" text-anchor="middle"
+                  x="76" y="418">Centrifugo
+            </text>
+            <text fill="#4f5d75" font-family="'Geist Mono', ui-monospace, monospace" font-size="9" text-anchor="middle" x="76"
+                  y="434">namespace centrifugo
+            </text>
+            <text fill="#4f5d75" font-family="'Geist Mono', ui-monospace, monospace" font-size="9" text-anchor="middle" x="76"
+                  y="452">WS :8000, public
+            </text>
+            <text fill="#4f5d75" font-family="'Geist Mono', ui-monospace, monospace" font-size="9" text-anchor="middle" x="76"
+                  y="466">API :9000, internal
+            </text>
+            <text fill="#4f5d75" font-family="'Geist Mono', ui-monospace, monospace" font-size="9" text-anchor="middle" x="76"
+                  y="480">binary protobuf
             </text>
 
             <!-- REST API -->
@@ -396,6 +435,9 @@
                 <rect fill="rgba(191,69,32,0.08)" height="12" rx="2" stroke="#bf4520" stroke-width="1" width="16" x="1056"
                       y="547"/>
                 <text fill="#4f5d75" x="1080" y="556">Shared state</text>
+                <line marker-end="url(#arrow-live)" stroke="#2f7d4f" stroke-width="1.4" x1="104" x2="136" y1="577"
+                      y2="577"/>
+                <text fill="#4f5d75" x="144" y="580">Live updates (L1, L2), after a write commits</text>
             </g>
         </svg>
     </div>
@@ -481,7 +523,7 @@
                     <tbody>
                     <tr>
                         <th scope="row"><span class="step setup">HTTP</span></th>
-                        <td><code>AuctionController</code> builds a <code>Request</code> and passes it to <code>ClusterCommandGateway</code>,
+                        <td><code>AuctionController</code> builds a <code>Request</code> and passes it to <code>ClusterGateway</code>,
                             which calls <code>ClusterRpcAgent.submit</code>. That queues the request and returns a
                             future. The HTTP thread never touches Aeron. If the queue of 4,096 is full, the caller gets
                             <code>503</code>.
@@ -524,7 +566,8 @@
                         <td>The service sends the reply through the session, and only the leader's reply goes out. On
                             the client, <code>pollEgress</code> delivers it to <code>onReply</code>, which matches the
                             correlation ID, cancels the timeout and completes the future.
-                            <code>ClusterCommandGateway</code> then maps the status to an HTTP response.
+                            <code>ClusterGateway</code> then maps the status to an HTTP response, and publishes a
+                            successful write as a live update (see <a href="#live">Live updates</a>).
                         </td>
                         <td class="lib">Aeron Cluster <code>ClientSession.offer</code>, <code>EgressListener</code>; SBE
                             codecs
@@ -607,6 +650,107 @@
                 isn't ready or its offer fails, such as during a failover, and it's then handled in <code>onSessionMessage</code>.
                 Setting <code>READS_THROUGH_LOG=true</code> sends every read that way. The
                 <code>auction.rpc.reads</code> metric counts each route with its <code>route</code> tag.</p>
+        </section>
+
+        <section id="live">
+            <h2>Live updates</h2>
+            <p>The web UI used to learn about other people's bids only by polling every 2 seconds. Now
+                <a href="https://centrifugal.dev">Centrifugo</a> pushes each committed write to every open page over
+                WebSocket, and polling slows to every 15 seconds as a safety net. Frames are binary: the browser speaks
+                Centrifugo's protobuf protocol, and the event inside is protobuf too.</p>
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                    <tr>
+                        <th scope="col">Step</th>
+                        <th scope="col">What happens</th>
+                        <th scope="col">Library and API</th>
+                    </tr>
+                    </thead>
+                    <tbody>
+                    <tr>
+                        <th scope="row"><span class="step setup">Setup</span></th>
+                        <td>The page asks <code>GET /realtime</code> where to connect, and gets Centrifugo's WebSocket URL
+                            and the channel <code>auctions</code>, or <code>204</code> if live updates are off. It
+                            connects without a token, because the feed is public and browsers may only subscribe. For
+                            the same reason Centrifugo accepts any origin; <code>centrifugo.allowedOrigins</code>
+                            narrows it.
+                        </td>
+                        <td class="lib">centrifuge-js protobuf build, subprotocol <code>centrifuge-protobuf</code>,
+                            on Centrifugo's public port <code>:8000</code></td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><span class="step live">L1</span></th>
+                        <td>When the cluster replies <code>OK</code> to a create or a bid, <code>ClusterGateway</code>
+                            encodes an <code>AuctionEvent</code> with the auction's new state and posts it to Centrifugo's
+                            server API with <code>X-API-Key</code>, on the internal port <code>:9000</code> of
+                            <code>centrifugo-internal</code> in namespace <code>centrifugo</code>. This runs after the reply and never waits, so a slow
+                            or missing Centrifugo can't delay or fail a request. Each client pod publishes the writes it
+                            handled, so an event goes out once.
+                        </td>
+                        <td class="lib">protobuf-java, generated from <code>auction_event.proto</code>;
+                            <code>java.net.http.HttpClient.sendAsync</code>; <code>POST /api/publish</code> with
+                            <code>b64data</code>, set by <code>CENTRIFUGO_API_URL</code></td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><span class="step live">L2</span></th>
+                        <td>Centrifugo pushes the event to every subscriber as a binary frame. The page decodes it with
+                            <code>auction-event.js</code> and updates that auction in place. A bid is kept only if it's
+                            higher than what the page shows, because two client pods can publish out of order. A new
+                            auction refreshes the list, since its place depends on the page, filter and order.
+                        </td>
+                        <td class="lib">Centrifugo channel history (100 events, 5 minutes); protobuf wire format</td>
+                    </tr>
+                    </tbody>
+                </table>
+            </div>
+            <p style="margin-top: 1rem;"><strong>Closing.</strong> The cluster closes auctions on its own timer, which
+                no client sees, so there is no close event. Instead the page refreshes once an auction it shows passes
+                its deadline.</p>
+            <p><strong>What it doesn't promise.</strong> Live updates are best effort. A publish that fails is counted
+                in <code>auction.realtime.publish{result="failed"}</code> and logged once, and the page catches up at
+                its next poll. A page that reconnects within 5 minutes gets missed events from history; after longer, it
+                refreshes. History is in Centrifugo's memory, so it runs as one replica, and more would need Redis or
+                NATS. The REST API stays the source of truth.</p>
+        </section>
+
+        <section id="deployment">
+            <h2>Deployment</h2>
+            <p>On Kubernetes, the auction runs in one namespace and Centrifugo in another, installed with the official
+                Centrifugo chart. They share only the server API key, held in a Secret in each namespace. The
+                aeron-auction chart can also run Centrifugo itself, in the same namespace, which is simpler for a
+                local cluster. Docker Compose runs it as one more service.</p>
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                    <tr>
+                        <th scope="col">Namespace</th>
+                        <th scope="col">Runs</th>
+                        <th scope="col">Installed with</th>
+                        <th scope="col">Reached by</th>
+                    </tr>
+                    </thead>
+                    <tbody>
+                    <tr>
+                        <th scope="row"><code>auction</code></th>
+                        <td>StatefulSet of 3 cluster members, Deployment of 2 clients</td>
+                        <td>The aeron-auction chart with <code>values-centrifugo-external.yaml</code></td>
+                        <td>Browsers on <code>:8080</code>. Members and clients reach each other over UDP</td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><code>centrifugo</code></th>
+                        <td>Deployment of 1 Centrifugo, with history in memory</td>
+                        <td><code>centrifugal/centrifugo</code> 13.7.1 with <code>infra/k8s/centrifugo/values.yaml</code></td>
+                        <td>Browsers on <code>centrifugo:8000</code> (WebSocket only). Client pods on
+                            <code>centrifugo-internal:9000</code> (server API), across namespaces
+                        </td>
+                    </tr>
+                    </tbody>
+                </table>
+            </div>
+            <p style="margin-top: 1rem;">Keeping Centrifugo apart lets it be upgraded, scaled and shared without
+                touching the auction release. More than one replica needs Redis or NATS as its broker, because history
+                is in memory. Only the WebSocket port is published, so publishing stays inside the cluster.</p>
         </section>
 
         <section id="failures">
@@ -732,6 +876,25 @@
                         <td>Generates the agent's <code>isConnected</code> getter</td>
                     </tr>
                     <tr>
+                        <th scope="row">Centrifugo</th>
+                        <td><code>v6.10.2</code>, chart <code>13.7.1</code></td>
+                        <td>Compose, Helm</td>
+                        <td>Pushes live updates to browsers over WebSocket, with channel history for reconnects</td>
+                    </tr>
+                    <tr>
+                        <th scope="row">centrifuge-js</th>
+                        <td><code>5.8.0</code>, protobuf build</td>
+                        <td>client</td>
+                        <td>The web UI's Centrifugo connection. Served from <code>static/vendor</code></td>
+                    </tr>
+                    <tr>
+                        <th scope="row">protobuf-java</th>
+                        <td><code>4.36.2</code></td>
+                        <td>client</td>
+                        <td>Encodes <code>AuctionEvent</code>. <code>protobuf-maven-plugin</code> generates it at build
+                            time with the matching <code>protoc</code></td>
+                    </tr>
+                    <tr>
                         <th scope="row">Prometheus, Grafana</th>
                         <td><code>v3.5.0</code>, <code>12.1.0</code></td>
                         <td>Compose</td>
@@ -792,6 +955,20 @@
                         <td>Read</td>
                         <td>Read replies on the client</td>
                         <td><code>READ_REPLY_ENDPOINT</code></td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><code>8000</code></th>
+                        <td>Live</td>
+                        <td>Centrifugo's WebSocket for browsers. In Compose and the built-in chart, also its server
+                            API and admin UI</td>
+                        <td><code>CENTRIFUGO_WEBSOCKET_URL</code></td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><code>9000</code></th>
+                        <td>Live</td>
+                        <td>Centrifugo's server API, admin UI, health and metrics, in namespace <code>centrifugo</code>.
+                            Internal only</td>
+                        <td><code>CENTRIFUGO_API_URL</code>, <code>CENTRIFUGO_HTTP_API_KEY</code></td>
                     </tr>
                     <tr>
                         <th scope="row"><code>9100</code></th>

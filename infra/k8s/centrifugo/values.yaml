@@ -1,0 +1,44 @@
+# Values for the official Centrifugo chart, installed in its own namespace (see readme.k8s.md):
+#   helm install centrifugo centrifugal/centrifugo --version 13.7.1 -n centrifugo -f infra/k8s/centrifugo/values.yaml
+# The settings match the Centrifugo inside the aeron-auction chart and infra/docker/centrifugo/config.json.
+
+image:
+  tag: v6.10.2 # the same version as Docker Compose; the chart's own default is 6.10.1
+
+# CENTRIFUGO_HTTP_API_KEY, CENTRIFUGO_ADMIN_PASSWORD and CENTRIFUGO_ADMIN_SECRET, loaded as env vars.
+# The chart never creates it. The client namespace needs the same API key in its own Secret.
+existingSecret: centrifugo
+
+# Only the WebSocket port (8000) goes on the main Service, which browsers reach. The server API, admin UI, health and
+# metrics (9000) get a ClusterIP Service of their own, centrifugo-internal, and the unused gRPC ports are kept off too.
+serviceInternal:
+  useSeparate: true
+serviceGrpc:
+  useSeparate: true
+serviceUniGrpc:
+  useSeparate: true
+
+# Becomes config.json. Browsers connect without a token and may only subscribe; only the client publishes, through
+# the server API. "*" accepts any page, which is safe for a public, read-only feed; list your hosts to narrow it.
+config:
+  client:
+    allow_anonymous_connect_without_token: true
+    allowed_origins: [ "*" ]
+  channel:
+    without_namespace:
+      allow_subscribe_for_client: true
+      allow_subscribe_for_anonymous: true
+      # Recent events per channel, so a browser that reconnects within 5 minutes gets what it missed.
+      history_size: 100
+      history_ttl: 300s
+      force_recovery: true
+
+# History is in memory with the default engine, so keep one replica. More need Redis or NATS (config.engine/broker).
+replicaCount: 1
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    memory: 256Mi

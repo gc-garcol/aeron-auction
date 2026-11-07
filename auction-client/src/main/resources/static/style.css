@@ -111,6 +111,28 @@ p {
     background: var(--bad);
 }
 
+/* Live updates through Centrifugo. Losing them isn't an error, because the page falls back to polling. */
+.live {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--muted);
+    font-size: 12px;
+}
+
+.live::before {
+    content: "";
+    width: 7px;
+    height: 7px;
+    border: 1px solid var(--muted);
+    border-radius: 50%;
+}
+
+.live.live-up::before {
+    background: var(--good);
+    border-color: var(--good);
+}
+
 .docs {
     margin-left: auto;
     font-size: 13px;

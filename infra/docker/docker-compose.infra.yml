@@ -1,0 +1,26 @@
+# Infrastructure only, for running the cluster and the client on this machine (dev profile or IntelliJ).
+# Today that is Centrifugo, which pushes live updates to the web UI. Start it before the client:
+#   docker compose -f infra/docker/docker-compose.infra.yml up -d
+# The dev profile's defaults in application-dev.yaml match the ports and keys below.
+name: aeron-auction-infra
+
+services:
+  centrifugo:
+    image: centrifugo/centrifugo:v6.10.2
+    command: centrifugo -c /centrifugo/config.json
+    environment:
+      # Local defaults only. Override them in the shell, and never reuse them outside this machine.
+      CENTRIFUGO_HTTP_API_KEY: ${CENTRIFUGO_HTTP_API_KEY:-dev-api-key}
+      CENTRIFUGO_ADMIN_PASSWORD: ${CENTRIFUGO_ADMIN_PASSWORD:-admin}
+      CENTRIFUGO_ADMIN_SECRET: ${CENTRIFUGO_ADMIN_SECRET:-dev-admin-secret}
+    volumes:
+      - ./centrifugo/config.json:/centrifugo/config.json:ro
+    ports:
+      - "8000:8000" # WebSocket at /connection/websocket, server API at /api, admin UI at /
+    healthcheck:
+      test: [ "CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:8000/health" ]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    ulimits:
+      nofile: 65536 # one file descriptor per WebSocket connection

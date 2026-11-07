@@ -1,0 +1,19 @@
+{{- if .Values.centrifugo.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "aeron-auction.centrifugo.name" . }}
+  labels:
+    {{- include "aeron-auction.labels" . | nindent 4 }}
+    app.kubernetes.io/component: centrifugo
+spec:
+  type: {{ .Values.centrifugo.service.type }}
+  selector:
+    {{- include "aeron-auction.centrifugo.selectorLabels" . | nindent 4 }}
+  ports:
+    # WebSocket at /connection/websocket for browsers, the server API at /api for the client pods.
+    - name: http
+      port: {{ .Values.centrifugo.service.port }}
+      targetPort: http
+      protocol: TCP
+{{- end }}

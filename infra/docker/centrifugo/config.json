@@ -1,0 +1,26 @@
+{
+  "client": {
+    "allow_anonymous_connect_without_token": true,
+    "allowed_origins": [
+      "*"
+    ]
+  },
+  "channel": {
+    "without_namespace": {
+      "allow_subscribe_for_client": true,
+      "allow_subscribe_for_anonymous": true,
+      "history_size": 100,
+      "history_ttl": "300s",
+      "force_recovery": true
+    }
+  },
+  "admin": {
+    "enabled": true
+  },
+  "health": {
+    "enabled": true
+  },
+  "prometheus": {
+    "enabled": true
+  }
+}

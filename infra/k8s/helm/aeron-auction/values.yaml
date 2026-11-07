@@ -122,6 +122,55 @@ client:
   tolerations: []
   podAnnotations: {}
 
+centrifugo:
+  # Pushes live updates to the web UI over WebSocket, as binary protobuf frames. Each client pod publishes the writes
+  # it handled through Centrifugo's server API. true runs Centrifugo in this release. To use one in its own namespace,
+  # set false and external.apiUrl (see values-centrifugo-external.yaml). With neither, the web UI polls.
+  enabled: true
+
+  external:
+    # Server API of a Centrifugo outside this release, such as
+    # http://centrifugo-internal.centrifugo.svc.cluster.local:9000/api. Only used while enabled is false.
+    apiUrl: ""
+
+  image:
+    repository: centrifugo/centrifugo
+    tag: v6.10.2
+    pullPolicy: IfNotPresent
+
+  # Required while enabled or external.apiUrl is set. A Secret in the release namespace with the key
+  # CENTRIFUGO_HTTP_API_KEY, which the client reads to publish. While enabled, Centrifugo also reads
+  # CENTRIFUGO_ADMIN_PASSWORD and CENTRIFUGO_ADMIN_SECRET from it. The chart never creates it.
+  existingSecret: ""
+
+  # Pages that may open a WebSocket. "*" allows any page, which is safe here because browsers can only subscribe to a
+  # public feed. Narrow it, such as [ "https://auction.example.com" ], or set [] to use every client.ingress host.
+  allowedOrigins: [ "*" ]
+  # Where browsers connect, absolute or relative to the page. The relative default goes through the client's Ingress,
+  # which routes /connection to Centrifugo.
+  websocketUrl: /connection/websocket
+  # Recent events per channel, so a browser that reconnects within historyTtl gets what it missed.
+  historySize: 100
+  historyTtl: 300s
+
+  # History lives in memory, so there is one replica. More need Redis or NATS as Centrifugo's broker.
+  replicas: 1
+
+  service:
+    type: ClusterIP
+    port: 8000
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      memory: 256Mi
+
+  nodeSelector: {}
+  tolerations: []
+  podAnnotations: {}
+
 metrics:
   # Adds prometheus.io/* annotations to the pods.
   podAnnotations: true

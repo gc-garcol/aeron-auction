@@ -1,0 +1,31 @@
+// Live updates that the client publishes to Centrifugo, and the browser decodes from binary WebSocket frames.
+// The browser's decoder is auction-client/src/main/resources/static/auction-event.js; keep the two in step.
+// Only add fields with new numbers: an old decoder skips a field it doesn't know.
+syntax = "proto3";
+
+package aeronauction.realtime;
+
+option java_package = "gc.garcol.aeronauction.client.realtime.proto";
+option java_multiple_files = true;
+
+// The state of one auction right after a write committed. Amounts are whole numbers in minor units.
+message AuctionEvent
+{
+    enum Type
+    {
+        TYPE_UNSPECIFIED = 0;
+        CREATED = 1;
+        BID_PLACED = 2;
+    }
+
+    Type type = 1;
+    int64 id = 2;
+    int64 seller_id = 3;
+    int64 start_price = 4;
+    int64 min_increment = 5;
+    // The deadline in epoch milliseconds. The auction reads as closed from then on.
+    int64 ends_at = 6;
+    // Both are absent until someone bids.
+    optional int64 highest_bid = 7;
+    optional int64 highest_bidder_id = 8;
+}

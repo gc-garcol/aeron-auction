@@ -7,6 +7,9 @@
     <title>Aeron Auction</title>
     <link href="style.css" rel="stylesheet">
     <script defer src="webjars/vue/3.5.44/dist/vue.global.prod.js"></script>
+    <!-- centrifuge-js's protobuf build (MIT), so live updates arrive as binary protobuf WebSocket frames. -->
+    <script defer src="vendor/centrifuge-5.8.0/centrifuge.protobuf.js"></script>
+    <script defer src="auction-event.js"></script>
     <script defer src="app.js"></script>
 </head>
 <body>
@@ -14,6 +17,7 @@
     <header class="top">
         <h1>Aeron <span>Auction</span></h1>
         <p :class="connection" class="connection" role="status">{{ connectionText }}</p>
+        <p :class="'live-' + live" class="live" role="status" v-if="liveText">{{ liveText }}</p>
         <a class="docs" href="swagger-ui.html">API docs</a>
     </header>
 

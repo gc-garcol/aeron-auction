@@ -3,6 +3,8 @@ package gc.garcol.aeronauction.client.api;
 import gc.garcol.aeronauction.client.api.dto.AuctionResponse;
 import gc.garcol.aeronauction.client.api.dto.ErrorResponse;
 import gc.garcol.aeronauction.client.api.dto.PageResponse;
+import gc.garcol.aeronauction.client.realtime.CentrifugoPublisher;
+import gc.garcol.aeronauction.client.realtime.proto.AuctionEvent;
 import gc.garcol.aeronauction.client.rpc.ClusterRpcAgent;
 import gc.garcol.aeronauction.client.rpc.RpcFailure;
 import gc.garcol.aeronauction.protocol.request.Request;
@@ -19,13 +21,15 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 
 /**
- * Sends commands to the cluster and turns each outcome into an HTTP response.
+ * Sends commands to the cluster and turns each outcome into an HTTP response. A write that the cluster accepted is
+ * also published as a live update.
  */
 @Component
 @RequiredArgsConstructor
 final class ClusterGateway
 {
     private final ClusterRpcAgent rpc;
+    private final CentrifugoPublisher publisher;
 
     private static ResponseEntity<?> toResponse(final Reply reply, final HttpStatus success)
     {
@@ -65,6 +69,34 @@ final class ClusterGateway
     CompletableFuture<ResponseEntity<?>> call(final Request request, final HttpStatus success)
     {
         return rpc.submit(request).handle((reply, failure) ->
-            failure != null ? toFailureResponse(failure) : toResponse(reply, success));
+        {
+            if (failure != null)
+            {
+                return toFailureResponse(failure);
+            }
+            publishIfCommitted(request, reply);
+            return toResponse(reply, success);
+        });
+    }
+
+    private void publishIfCommitted(final Request request, final Reply reply)
+    {
+        if (reply.status() != ReplyStatus.OK || !(reply instanceof AuctionReply auctionReply))
+        {
+            return;
+        }
+        switch (request)
+        {
+            case Request.CreateAuction ignored -> publisher.publish(AuctionEvent.Type.CREATED, auctionReply.auction());
+            case Request.PlaceBid ignored -> publisher.publish(AuctionEvent.Type.BID_PLACED, auctionReply.auction());
+            case Request.GetAuction ignored ->
+            {
+                // reads change nothing
+            }
+            case Request.ListAuctions ignored ->
+            {
+                // reads change nothing
+            }
+        }
     }
 }

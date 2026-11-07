@@ -74,6 +74,18 @@ spec:
               value: {{ .Values.client.javaToolOptions | quote }}
             - name: MANAGEMENT_ENDPOINT_HEALTH_PROBES_ENABLED
               value: "true"
+            {{- with include "aeron-auction.centrifugo.apiUrl" . }}
+            # Live updates: publish to Centrifugo's server API, and tell browsers where to connect.
+            - name: CENTRIFUGO_API_URL
+              value: {{ . | quote }}
+            - name: CENTRIFUGO_WEBSOCKET_URL
+              value: {{ $.Values.centrifugo.websocketUrl | quote }}
+            - name: CENTRIFUGO_HTTP_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ required "centrifugo.existingSecret is required for live updates, see readme.k8s.md" $.Values.centrifugo.existingSecret }}
+                  key: CENTRIFUGO_HTTP_API_KEY
+            {{- end }}
             # Take a pod out of the Service while it has no cluster session, but don't restart it for that.
             - name: MANAGEMENT_ENDPOINT_HEALTH_GROUP_READINESS_INCLUDE
               value: readinessState,cluster

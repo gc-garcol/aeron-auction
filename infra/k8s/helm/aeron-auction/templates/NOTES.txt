@@ -8,3 +8,14 @@ Open the API and web UI:
   open http://localhost:8080   # Swagger: http://localhost:8080/swagger-ui.html
 
 Client pods report not ready until they have a cluster session.
+{{- if and (not .Values.centrifugo.enabled) .Values.centrifugo.external.apiUrl }}
+
+Live updates go through the Centrifugo at {{ .Values.centrifugo.external.apiUrl }}. Browsers connect to {{ .Values.centrifugo.websocketUrl }}.
+{{- end }}
+{{- if .Values.centrifugo.enabled }}
+
+Live updates go through {{ include "aeron-auction.centrifugo.name" . }}. Browsers connect to {{ .Values.centrifugo.websocketUrl }}.
+Its admin UI:
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "aeron-auction.centrifugo.name" . }} 8000:{{ .Values.centrifugo.service.port }}
+  open http://localhost:8000   # password: CENTRIFUGO_ADMIN_PASSWORD in Secret {{ .Values.centrifugo.existingSecret }}
+{{- end }}

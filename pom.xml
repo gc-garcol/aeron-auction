@@ -27,6 +27,9 @@
         <sbe.version>1.41.0</sbe.version>
         <vue.version>3.5.44</vue.version>
         <springdoc.version>3.2.0</springdoc.version>
+        <!-- protobuf-java and the protoc that generates it must match. -->
+        <protobuf.version>4.36.2</protobuf.version>
+        <protobuf-maven-plugin.version>5.1.11</protobuf-maven-plugin.version>
         <checkstyle.version>10.23.0</checkstyle.version>
         <!-- Aeron fails on Java 25 without this flag. -->
         <aeron.jvm.flags>--add-opens java.base/jdk.internal.misc=ALL-UNNAMED</aeron.jvm.flags>

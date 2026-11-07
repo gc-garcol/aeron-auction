@@ -30,6 +30,40 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
 {{- printf "%s-client" (include "aeron-auction.fullname" .) }}
 {{- end }}
 
+{{- define "aeron-auction.centrifugo.name" -}}
+{{- printf "%s-centrifugo" (include "aeron-auction.fullname" .) }}
+{{- end }}
+
+{{/* The server API the client publishes to: this release's Centrifugo, an external one, or none. */}}
+{{- define "aeron-auction.centrifugo.apiUrl" -}}
+{{- $c := .Values.centrifugo }}
+{{- if and $c.enabled $c.external.apiUrl }}
+{{- fail "set centrifugo.enabled=false to use centrifugo.external.apiUrl" }}
+{{- else if $c.enabled }}
+{{- printf "http://%s:%v/api" (include "aeron-auction.centrifugo.name" .) $c.service.port }}
+{{- else }}
+{{- $c.external.apiUrl }}
+{{- end }}
+{{- end }}
+
+{{- define "aeron-auction.centrifugo.selectorLabels" -}}
+app.kubernetes.io/name: {{ include "aeron-auction.name" . }}
+app.kubernetes.io/instance: {{ .Release.Name }}
+app.kubernetes.io/component: centrifugo
+{{- end }}
+
+{{/* Origins that may open a WebSocket: centrifugo.allowedOrigins, or else every Ingress host. */}}
+{{- define "aeron-auction.centrifugo.allowedOrigins" -}}
+{{- $origins := .Values.centrifugo.allowedOrigins | default list }}
+{{- if and (empty $origins) .Values.client.ingress.enabled }}
+{{- $scheme := ternary "https" "http" (not (empty .Values.client.ingress.tls)) }}
+{{- range .Values.client.ingress.hosts }}
+{{- $origins = append $origins (printf "%s://%s" $scheme .host) }}
+{{- end }}
+{{- end }}
+{{- toJson $origins }}
+{{- end }}
+
 {{- define "aeron-auction.cluster.selectorLabels" -}}
 app.kubernetes.io/name: {{ include "aeron-auction.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}

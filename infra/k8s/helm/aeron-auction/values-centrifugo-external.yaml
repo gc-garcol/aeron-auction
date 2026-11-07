@@ -1,0 +1,14 @@
+# Publishes to a Centrifugo in its own namespace instead of running one in this release (see readme.k8s.md).
+# Use after the other values files:
+#   -f values-local.yaml -f values-centrifugo-external.yaml
+centrifugo:
+  enabled: false
+  external:
+    # The official chart's internal Service, which serves the server API on port 9000.
+    apiUrl: http://centrifugo-internal.centrifugo.svc.cluster.local:9000/api
+  # The client reads CENTRIFUGO_HTTP_API_KEY from this Secret in its own namespace. It must hold the same key as the
+  # Secret in the centrifugo namespace.
+  existingSecret: auction-centrifugo
+  # Where browsers connect: the centrifugo Service published on localhost. On a real cluster, use Centrifugo's own
+  # Ingress, such as wss://realtime.example.com/connection/websocket.
+  websocketUrl: ws://localhost:8000/connection/websocket

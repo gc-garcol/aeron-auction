@@ -23,6 +23,16 @@ spec:
     - host: {{ .host | quote }}
       http:
         paths:
+          {{- if $.Values.centrifugo.enabled }}
+          # Centrifugo's WebSocket, so browsers connect on the same host as the page.
+          - path: /connection
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "aeron-auction.centrifugo.name" $ }}
+                port:
+                  name: http
+          {{- end }}
           {{- range .paths }}
           - path: {{ .path }}
             pathType: {{ .pathType }}

@@ -34,6 +34,13 @@ auction:
     heartbeat-while-ready-ms: 1000 # keep this well below the node's auction.read-channel.client-timeout-ms
     ready-timeout-ms: 3000
     request-term-length: 1m
+  # Live updates through Centrifugo. Off while CENTRIFUGO_API_URL is unset, and the web UI then only polls.
+  realtime:
+    api-url: ${CENTRIFUGO_API_URL:} # server API, such as http://centrifugo:8000/api
+    api-key: ${CENTRIFUGO_HTTP_API_KEY:} # the same variable sets Centrifugo's http_api.key
+    websocket-url: ${CENTRIFUGO_WEBSOCKET_URL:} # what browsers connect to, absolute or relative to the page
+    channel: auctions
+    publish-timeout-ms: 1000
 
 management:
   endpoints:

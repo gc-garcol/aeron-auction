@@ -1,0 +1,14 @@
+# Overrides for a small local cluster. Use after values.yaml:
+#   -f infra/k8s/centrifugo/values.yaml -f infra/k8s/centrifugo/values-local.yaml
+
+# Docker Desktop and OrbStack publish a LoadBalancer on localhost, so browsers connect to
+# ws://localhost:8000/connection/websocket. Only port 8000 is on this Service.
+service:
+  type: LoadBalancer
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    memory: 128Mi

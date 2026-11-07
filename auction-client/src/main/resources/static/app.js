@@ -3,6 +3,10 @@
 const { createApp } = Vue;
 
 const REFRESH_MS = 2000;
+// With live updates, polling is only a safety net for a lost event, so it can be slow.
+const LIVE_REFRESH_MS = 15000;
+// Coalesces a burst of new auctions, or of auctions reaching their deadline, into one refresh.
+const LIVE_REFRESH_DELAY_MS = 300;
 const SUCCESS_MESSAGE_MS = 5000;
 const ENDING_SOON_MS = 10000;
 const MAX_DURATION_SECONDS = 604800;
@@ -83,6 +87,7 @@ createApp({
       totalPages: 0,
       loaded: false,
       connection: 'connecting',
+      live: 'off', // off, connecting, up or down; see startLive
       now: Date.now(),
       message: null,
       bidder: loadBidder(),
@@ -114,6 +119,9 @@ createApp({
     connectionText() {
       return { up: 'Cluster connected', down: 'Cluster unavailable', connecting: 'Connecting…' }[this.connection];
     },
+    liveText() {
+      return { up: 'Live', connecting: 'Live: connecting…', down: 'Live: polling' }[this.live] ?? null;
+    },
     bidderValid() {
       return isPositiveWhole(this.bidder);
     },
@@ -138,11 +146,14 @@ createApp({
   mounted() {
     this.refreshGeneration = 0;
     this.lastBids = {};
+    this.endedRefreshed = new Set();
     this.clock = setInterval(() => {
       this.now = Date.now();
+      this.refreshEnded();
     }, 1000);
     document.addEventListener('visibilitychange', this.onVisibilityChange);
     this.refresh();
+    this.startLive();
   },
 
   methods: {
@@ -285,11 +296,103 @@ createApp({
       this.schedule();
     },
 
-    // Every refresh adds a small entry to the replicated log, so don't poll while the tab isn't visible.
+    // Don't poll while the tab isn't visible. Live updates keep arriving, and a refresh runs when it's shown again.
     schedule() {
       clearTimeout(this.refreshTimer);
       if (!document.hidden) {
-        this.refreshTimer = setTimeout(this.refresh, REFRESH_MS);
+        this.refreshTimer = setTimeout(this.refresh, this.live === 'up' ? LIVE_REFRESH_MS : REFRESH_MS);
+      }
+    },
+
+    refreshSoon() {
+      clearTimeout(this.liveRefreshTimer);
+      this.liveRefreshTimer = setTimeout(this.refresh, LIVE_REFRESH_DELAY_MS);
+    },
+
+    // Centrifugo pushes each committed write as a binary protobuf frame. Without it the page only polls.
+    async startLive() {
+      if (typeof Centrifuge === 'undefined' || typeof AuctionEvent === 'undefined') {
+        return;
+      }
+      const result = await api('realtime');
+      if (!result.ok || !result.data) {
+        return; // 204: live updates are off on the server
+      }
+
+      const url = new URL(result.data.websocketUrl, window.location.href);
+      if (url.protocol === 'http:' || url.protocol === 'https:') {
+        url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
+      }
+      this.setLive('connecting');
+      const centrifuge = new Centrifuge(url.toString());
+      centrifuge.on('connecting', () => this.setLive('connecting'));
+      centrifuge.on('disconnected', () => this.setLive('down'));
+
+      const subscription = centrifuge.newSubscription(result.data.channel);
+      subscription.on('subscribing', () => this.setLive('connecting'));
+      subscription.on('subscribed', (context) => {
+        this.setLive('up');
+        if (context.wasRecovering && !context.recovered) {
+          this.refresh(); // events were missed while disconnected and history no longer has them
+        }
+      });
+      subscription.on('publication', (context) => this.onLiveEvent(context.data));
+      subscription.subscribe();
+      centrifuge.connect();
+      this.centrifuge = centrifuge;
+    },
+
+    setLive(state) {
+      if (this.live !== state) {
+        this.live = state;
+        this.schedule(); // the polling interval depends on it
+      }
+    },
+
+    onLiveEvent(bytes) {
+      let event;
+      try {
+        event = AuctionEvent.decode(bytes);
+      } catch (error) {
+        console.warn('ignoring an AuctionEvent that does not decode', error);
+        return;
+      }
+
+      if (event.type === 'CREATED') {
+        if (this.foundId === null && this.statusFilter !== 'CLOSED') {
+          this.refreshSoon(); // where it lands depends on the page, filter and order, so ask the server
+        }
+        return;
+      }
+      if (event.type !== 'BID_PLACED') {
+        return;
+      }
+
+      const index = this.auctions.findIndex((auction) => auction.id === event.id);
+      if (index === -1) {
+        return; // not on this page
+      }
+      const current = this.auctions[index];
+      const incoming = AuctionEvent.toAuction(event);
+      // Two client pods can publish bids on one auction out of order. Bids only go up, so keep the highest.
+      if (this.isClosed(current) || (current.highestBid ?? -1) >= (incoming.highestBid ?? -1)) {
+        return;
+      }
+      const auctions = this.auctions.slice();
+      auctions[index] = incoming;
+      this.showAuctions(auctions);
+    },
+
+    // No event marks an auction closed, because the cluster closes it on its own timer. Ask once it's due.
+    refreshEnded() {
+      if (this.live !== 'up') {
+        return; // polling every 2 seconds already picks it up
+      }
+      const due = this.auctions.filter((auction) =>
+        !this.isClosed(auction) && auction.endsAt <= this.now && !this.endedRefreshed.has(auction.id));
+      if (due.length > 0) {
+        due.forEach((auction) => this.endedRefreshed.add(auction.id));
+        this.refreshSoon();
       }
     },
 

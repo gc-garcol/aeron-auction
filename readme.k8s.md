@@ -1,6 +1,6 @@
 # Kubernetes
 
-A Helm chart that runs the 3-node Aeron Cluster and 2 client pods. The Kubernetes files are in
+A Helm chart that runs the 3-node Aeron Cluster, 2 client pods and Centrifugo for live updates. The Kubernetes files are in
 [`infra/k8s/`](infra/k8s), and the Dockerfiles and the Docker Compose setup are in [`infra/docker/`](infra/docker). Run
 every command below from the repository root.
 
@@ -9,6 +9,8 @@ every command below from the repository root.
 | `infra/k8s/helm/aeron-auction/`                 | The chart                                                    |
 | `infra/k8s/helm/aeron-auction/values.yaml`      | Defaults for a real cluster: 3 members on 3 different nodes  |
 | `infra/k8s/helm/aeron-auction/values-local.yaml`| Overrides for a small local cluster with about 4GB of memory |
+| `infra/k8s/helm/aeron-auction/values-centrifugo-external.yaml` | Uses a Centrifugo in its own namespace instead of the built-in one |
+| `infra/k8s/centrifugo/values.yaml`, `values-local.yaml` | Values for the official Centrifugo chart, installed in its own namespace |
 | `infra/k8s/load-images.sh`                      | Copies local images into the nodes of a kind-based cluster   |
 | `infra/k8s/secrets/vault-local.sh`              | Installs Vault (dev mode) and External Secrets Operator locally |
 | `infra/k8s/secrets/client-secrets.yaml`         | Syncs the client's secrets from Vault into a Kubernetes Secret |
@@ -24,10 +26,12 @@ every command below from the repository root.
 | Deployment `<release>-client`, 2 pods    | The REST API and web UI. Each pod advertises its own IP for egress and read replies         |
 | Service `<release>-client`               | HTTP on port 8080. Only pods with a cluster session are ready and get traffic              |
 | PodDisruptionBudgets                     | At most 1 member down at a time, so a quorum of 2 stays up; at least 1 client up           |
-| Ingress, ServiceMonitors                 | Off by default: `client.ingress.enabled`, `metrics.serviceMonitor.enabled`                 |
+| Deployment `<release>-centrifugo`, 1 pod, its Service and ConfigMap | Pushes live updates to the web UI over WebSocket as binary protobuf frames. The clients publish to its server API at `:8000/api` |
+| Ingress, ServiceMonitors                 | Off by default: `client.ingress.enabled`, `metrics.serviceMonitor.enabled`. The Ingress also routes `/connection` to Centrifugo |
 
 The chart never creates a Secret. With `client.existingSecret` or `cluster.existingSecret` set, the pods read every key
-of that Secret as an env var (see [Secrets with Vault](#secrets-with-vault)).
+of that Secret as an env var (see [Secrets with Vault](#secrets-with-vault)). Centrifugo needs one too, named by
+`centrifugo.existingSecret`, and the install stops with an error until it's set.
 
 Members start together (`podManagementPolicy: Parallel`), since none of them can elect a leader alone. `/dev/shm` is a
 memory-backed `emptyDir`, so it counts toward the pod's memory limit. The chart refuses an even `cluster.replicas`.
@@ -58,20 +62,29 @@ have them.
 
 Run this again after every rebuild, then restart the pods (step 5).
 
-**3. Install.**
+**3. Install.** First create Centrifugo's Secret, which `values-local.yaml` names `auction-centrifugo`. Centrifugo reads
+all three keys, and the client pods read the API key to publish.
 
 ```bash
+kubectl create namespace auction
+kubectl -n auction create secret generic auction-centrifugo \
+  --from-literal=CENTRIFUGO_HTTP_API_KEY="$(openssl rand -hex 32)" \
+  --from-literal=CENTRIFUGO_ADMIN_PASSWORD="$(openssl rand -hex 16)" \
+  --from-literal=CENTRIFUGO_ADMIN_SECRET="$(openssl rand -hex 32)"
+
 helm install auction infra/k8s/helm/aeron-auction \
-  -n auction --create-namespace \
+  -n auction \
   -f infra/k8s/helm/aeron-auction/values-local.yaml
 kubectl -n auction wait --for=condition=Ready pod --all --timeout=180s
 kubectl -n auction get pods -o wide
 ```
 
-All 5 pods should be `1/1 Running`. A client becomes ready only once it has a session with the cluster's leader.
+All 6 pods should be `1/1 Running`. A client becomes ready only once it has a session with the cluster's leader.
 
 Or with [k9s](#dashboards): run `k9s -n auction` and watch the pods turn `1/1 Running`. Press `l` on a pod that stays
 `0/1` to see why.
+
+To install without live updates, skip the Secret and add `--set centrifugo.enabled=false`. The web UI then polls.
 
 **4. Try it.**
 
@@ -93,6 +106,18 @@ port-forward is needed:
 | Anything else              | `kubectl -n auction port-forward svc/auction-aeron-auction-client 8080:8080`              |
 
 On a real cluster, keep the default `ClusterIP` and turn on the Ingress (`client.ingress.enabled`) instead.
+
+**Live updates.** `values-local.yaml` publishes Centrifugo the same way, on http://localhost:8000, and the browser
+connects to it there. With the web UI open, the header shows **Live**, and a bid placed from another tab or with
+`curl` appears within a moment instead of at the next poll. If Centrifugo can't be reached, the header shows
+**Live: polling** and the page polls every 2 seconds as before. Without a LoadBalancer on localhost, also run
+`kubectl -n auction port-forward svc/auction-aeron-auction-centrifugo 8000:8000`.
+
+Centrifugo's admin UI, with its live channel list, is at http://localhost:8000. Log in with the admin password:
+
+```bash
+kubectl -n auction get secret auction-centrifugo -o jsonpath='{.data.CENTRIFUGO_ADMIN_PASSWORD}' | base64 -d; echo
+```
 
 **Failover.** Find the leader (`aeron_cluster_role` is `2` on the leader, `0` on followers), delete its pod, and keep
 sending requests. A new leader takes over within a few seconds, and the deleted pod rejoins as a follower with the
@@ -144,6 +169,90 @@ kubectl delete namespace auction
 | Client memory request/limit  | 1.5Gi / 1.5Gi, `/dev/shm` 256Mi | 384Mi / 640Mi, `/dev/shm` 128Mi          |
 | Data volume                  | 10Gi                    | 1Gi                                              |
 | Image                        | `appVersion` tag, `IfNotPresent` | `latest`, `Never`                       |
+| Centrifugo                   | `ClusterIP`, reached through the Ingress at `/connection` | `LoadBalancer` on `localhost:8000`, Secret `auction-centrifugo` |
+
+## Centrifugo in its own namespace
+
+The chart can run Centrifugo itself (above), or the client can publish to one that runs on its own, installed with
+the [official chart](https://github.com/centrifugal/helm-charts) in namespace `centrifugo`. Use your own when several
+apps share Centrifugo, when it should be upgraded and scaled apart from the auction release, or on a real cluster.
+
+| | Built in (`centrifugo.enabled: true`) | Own namespace (`values-centrifugo-external.yaml`) |
+|---|---|---|
+| Installed by | The aeron-auction chart | `centrifugal/centrifugo` 13.7.1, image `v6.10.2` |
+| Ports | One Service on `:8000`: WebSocket, server API and admin UI | `centrifugo` on `:8000` for WebSocket only; `centrifugo-internal` (ClusterIP) on `:9000` for the server API, admin UI, health and metrics |
+| Client publishes to | `http://<release>-centrifugo:8000/api` | `http://centrifugo-internal.centrifugo.svc.cluster.local:9000/api` |
+| Secrets | One, `auction-centrifugo` | One per namespace, both holding the same API key |
+
+Only the WebSocket port is public in the second setup, so the API key is the only thing that guards publishing, and it
+never leaves the cluster.
+
+**1. Install Centrifugo.** Secrets belong to a namespace, so the API key goes into both: Centrifugo reads all three keys
+from `centrifugo`, and the client reads the API key from `auction-centrifugo`.
+
+```bash
+helm repo add centrifugal https://centrifugal.github.io/helm-charts
+helm repo update centrifugal
+
+API_KEY="$(openssl rand -hex 32)"
+kubectl create namespace centrifugo
+kubectl -n centrifugo create secret generic centrifugo \
+  --from-literal=CENTRIFUGO_HTTP_API_KEY="$API_KEY" \
+  --from-literal=CENTRIFUGO_ADMIN_PASSWORD="$(openssl rand -hex 16)" \
+  --from-literal=CENTRIFUGO_ADMIN_SECRET="$(openssl rand -hex 32)"
+kubectl create namespace auction --dry-run=client -o yaml | kubectl apply -f -
+kubectl -n auction create secret generic auction-centrifugo \
+  --from-literal=CENTRIFUGO_HTTP_API_KEY="$API_KEY" --dry-run=client -o yaml | kubectl apply -f -
+
+helm install centrifugo centrifugal/centrifugo --version 13.7.1 -n centrifugo \
+  -f infra/k8s/centrifugo/values.yaml \
+  -f infra/k8s/centrifugo/values-local.yaml
+kubectl -n centrifugo rollout status deployment/centrifugo
+```
+
+`values-local.yaml` publishes the `centrifugo` Service on localhost, like the client, so browsers connect to
+`ws://localhost:8000/connection/websocket`. Without a LoadBalancer on localhost, run
+`kubectl -n centrifugo port-forward svc/centrifugo 8000:8000`.
+
+**2. Point the auction release at it.** Add `values-centrifugo-external.yaml` after the other values files. It turns
+off the built-in Centrifugo and sets the server API URL. Use `helm install` for a new release, or `helm upgrade` to
+move an existing one; the upgrade removes the built-in Centrifugo.
+
+```bash
+helm upgrade --install auction infra/k8s/helm/aeron-auction -n auction \
+  -f infra/k8s/helm/aeron-auction/values-local.yaml \
+  -f infra/k8s/helm/aeron-auction/values-centrifugo-external.yaml
+```
+
+Pass the same `-f` files on every later upgrade, or the release brings its own Centrifugo back.
+
+**3. Check it.** The client logs `live updates go to Centrifugo at http://centrifugo-internal...`, and the web UI shows
+**Live**. The admin UI is on the internal port:
+
+```bash
+kubectl -n auction logs deploy/auction-aeron-auction-client | grep "live updates"
+kubectl -n centrifugo get secret centrifugo -o jsonpath='{.data.CENTRIFUGO_ADMIN_PASSWORD}' | base64 -d; echo
+kubectl -n centrifugo port-forward svc/centrifugo-internal 9000:9000   # then open http://localhost:9000
+```
+
+**Change the API key** by updating both Secrets with the same new value, then restarting both sides, because env vars
+are read at startup: `kubectl -n centrifugo rollout restart deployment/centrifugo` and
+`kubectl -n auction rollout restart deployment/auction-aeron-auction-client`. To keep the two in step automatically,
+sync both from one Vault path with External Secrets Operator, as in [Secrets with Vault](#secrets-with-vault).
+
+**On a real cluster**, set `service.type: ClusterIP` and turn on the official chart's `ingress` with a host such as
+`realtime.example.com`, then set `centrifugo.websocketUrl: wss://realtime.example.com/connection/websocket` in the
+auction values. A NetworkPolicy must let the client pods reach `centrifugo-internal:9000` across namespaces.
+
+**Remove.**
+
+```bash
+helm upgrade auction infra/k8s/helm/aeron-auction -n auction -f infra/k8s/helm/aeron-auction/values-local.yaml \
+  --set centrifugo.enabled=false   # or drop the flag to go back to the built-in Centrifugo
+helm uninstall centrifugo -n centrifugo
+kubectl delete namespace centrifugo
+kubectl -n auction delete secret auction-centrifugo
+```
 
 ## Dashboards
 
@@ -228,6 +337,7 @@ ConfigMap: the settings are few, and as long as they sit in the pod spec, changi
 | Taken from values                                 | `values.yaml`, `values-local.yaml`                                     | `RPC_TIMEOUT_MS`, `READS_THROUGH_LOG`, `JAVA_TOOL_OPTIONS`        |
 | Anything else                                     | `cluster.extraEnv`, `client.extraEnv`                                  |                                                                   |
 | Secrets                                           | The Secret named by `client.existingSecret` / `cluster.existingSecret` | `DEMO_SECRET` from Vault                                          |
+| Centrifugo's secrets                              | The Secret named by `centrifugo.existingSecret`                        | `CENTRIFUGO_HTTP_API_KEY`, also read by the client pods           |
 
 If a key is set both in the pod spec and in the Secret, the pod spec wins, so a Secret can't override `NODE_ID` or
 `CLUSTER_MEMBERS`.
@@ -349,6 +459,14 @@ helm install auction infra/k8s/helm/aeron-auction -n auction --create-namespace 
   --set client.image.repository=registry.example.com/aeron-auction/client \
   --set cluster.image.tag=0.0.1 --set client.image.tag=0.0.1
 ```
+
+Create Centrifugo's Secret first, as in step 3 of [Deploy locally](#deploy-locally), or sync it from Vault like the
+client's, and pass `--set centrifugo.existingSecret=<its name>`. For production, prefer running Centrifugo in
+[its own namespace](#centrifugo-in-its-own-namespace). With the Ingress on, browsers reach Centrifugo on the
+same host at `/connection/websocket`. Centrifugo accepts any origin by default (`centrifugo.allowedOrigins: ["*"]`),
+since browsers can only subscribe; list your hosts there to narrow it, or set `[]` to use the Ingress hosts. WebSocket connections stay open, so raise the Ingress controller's idle
+timeout, such as `nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"` for ingress-nginx. Centrifugo keeps its
+history in memory, so the chart runs one replica; more need Redis or NATS as its broker.
 
 With the default `podAntiAffinity: hard` the cluster needs at least 3 schedulable nodes. Pod-to-pod UDP must be
 allowed between the members and clients (ports 9002-9006, 8010 and 9007), including by any NetworkPolicy. Set

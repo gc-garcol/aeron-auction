@@ -1,0 +1,84 @@
+{{- if .Values.centrifugo.enabled }}
+{{- $c := .Values.centrifugo }}
+{{- $secret := required "centrifugo.existingSecret is required while centrifugo.enabled is true, see readme.k8s.md" $c.existingSecret }}
+{{- if ne (int $c.replicas) 1 }}
+{{- fail "centrifugo.replicas must be 1: history is in memory, and more replicas need Redis or NATS as the broker" }}
+{{- end }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "aeron-auction.centrifugo.name" . }}
+  labels:
+    {{- include "aeron-auction.labels" . | nindent 4 }}
+    app.kubernetes.io/component: centrifugo
+spec:
+  replicas: 1
+  # One replica, so a rollout stops it before starting the new one. Browsers reconnect and recover from history.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "aeron-auction.centrifugo.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "aeron-auction.labels" . | nindent 8 }}
+        app.kubernetes.io/component: centrifugo
+      annotations:
+        # Rolls the pod when the config changes, because Centrifugo reads it once at startup.
+        checksum/config: {{ include (print $.Template.BasePath "/centrifugo-configmap.yaml") . | sha256sum }}
+        {{- if .Values.metrics.podAnnotations }}
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8000"
+        prometheus.io/path: /metrics
+        {{- end }}
+        {{- with $c.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $c.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $c.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000 # the image's centrifugo user
+      containers:
+        - name: centrifugo
+          image: "{{ $c.image.repository }}:{{ $c.image.tag }}"
+          imagePullPolicy: {{ $c.image.pullPolicy }}
+          args: [ "centrifugo", "-c", "/centrifugo/config.json" ]
+          # CENTRIFUGO_HTTP_API_KEY, CENTRIFUGO_ADMIN_PASSWORD and CENTRIFUGO_ADMIN_SECRET.
+          envFrom:
+            - secretRef:
+                name: {{ $secret }}
+          ports:
+            - { name: http, containerPort: 8000, protocol: TCP }
+          readinessProbe:
+            httpGet: { path: /health, port: http }
+            periodSeconds: 5
+          livenessProbe:
+            httpGet: { path: /health, port: http }
+            periodSeconds: 10
+            failureThreshold: 6
+          resources:
+            {{- toYaml $c.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: [ ALL ] }
+          volumeMounts:
+            - { name: config, mountPath: /centrifugo/config.json, subPath: config.json, readOnly: true }
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "aeron-auction.centrifugo.name" . }}
+{{- end }}
