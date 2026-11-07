@@ -161,8 +161,32 @@ kubectl -n kubernetes-dashboard port-forward svc/kubernetes-dashboard-kong-proxy
 Open https://localhost:8443, accept the self-signed certificate and paste the token. The token expires after about an
 hour; run `create token` again for a new one.
 
-[Headlamp](https://headlamp.dev) and [k9s](https://k9scli.io) (`brew install k9s`) are lighter: they use your
-kubeconfig, so nothing is installed in the cluster and no token is needed.
+[Headlamp](https://headlamp.dev) and [k9s](https://k9scli.io) are lighter: they use your kubeconfig, so nothing is
+installed in the cluster and no token is needed.
+
+**k9s**, a terminal UI and the quickest way to watch the cluster:
+
+```bash
+brew install k9s
+k9s -n auction
+```
+
+Type `:` and a resource to switch views, such as `:pods`, `:sts`, `:deploy`, `:svc`, `:pvc`, `:secrets` or `:events`.
+`/` filters the list, `?` shows every key and `:q` quits.
+
+| Key       | On                    | Does                                                                     |
+|-----------|-----------------------|--------------------------------------------------------------------------|
+| `l`       | Pod                   | Follows its logs                                                         |
+| `d`, `y`  | Any resource          | Describes it, or shows its YAML                                          |
+| `s`       | Pod                   | Opens a shell in it                                                      |
+| `shift-f` | Pod                   | Port-forwards a port, such as `9100` on a member or `8080` on a client. `:pf` lists them |
+| `ctrl-d`  | Any resource          | Deletes it, after asking                                                 |
+| `r`       | StatefulSet, Deployment | Rolls its pods, like `kubectl rollout restart`                         |
+| `x`       | Secret                | Shows the decoded values, such as `auction-client-secrets`               |
+
+To try [failover](#deploy-locally) from k9s: in `:pods`, port-forward `9100` on each member with `shift-f`, run
+`curl -s localhost:<port>/actuator/prometheus | grep '^aeron_cluster_role'` to find the leader (`2`), then select the
+leader's pod and press `ctrl-d`. The list shows the pod restart and turn `1/1` again once it has rejoined.
 
 **Grafana**, for the Aeron Auction dashboard that the Docker setup has at http://localhost:3000. Install
 `kube-prometheus-stack` and turn on the chart's ServiceMonitors:
