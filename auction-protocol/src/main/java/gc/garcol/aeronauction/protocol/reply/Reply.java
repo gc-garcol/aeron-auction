@@ -1,10 +1,10 @@
 package gc.garcol.aeronauction.protocol.reply;
 
-import gc.garcol.aeronauction.protocol.command.Command;
+import gc.garcol.aeronauction.protocol.request.Request;
 import gc.garcol.aeronauction.protocol.sbe.ReplyStatus;
 
 /**
- * The cluster's answer to a {@link Command}.
+ * The cluster's answer to a {@link Request}.
  */
 public sealed interface Reply permits AuctionReply, AuctionPageReply
 {

@@ -5,7 +5,7 @@ import gc.garcol.aeronauction.client.api.dto.CreateAuctionRequest;
 import gc.garcol.aeronauction.client.api.dto.ErrorResponse;
 import gc.garcol.aeronauction.client.api.dto.PageResponse;
 import gc.garcol.aeronauction.client.api.dto.PlaceBidRequest;
-import gc.garcol.aeronauction.protocol.command.Command;
+import gc.garcol.aeronauction.protocol.request.Request;
 import gc.garcol.aeronauction.protocol.sbe.AuctionStatusFilter;
 import gc.garcol.aeronauction.protocol.sbe.SortOrder;
 import io.swagger.v3.oas.annotations.Operation;
@@ -66,7 +66,7 @@ public class AuctionController
     public CompletableFuture<ResponseEntity<?>> create(@RequestBody final CreateAuctionRequest request)
     {
         return gateway.call(
-            new Command.CreateAuction(
+            new Request.CreateAuction(
                 request.sellerId(), request.startPrice(), request.minIncrement(), request.durationMs()),
             HttpStatus.CREATED);
     }
@@ -107,7 +107,7 @@ public class AuctionController
     public CompletableFuture<ResponseEntity<?>> bid(
         @PathVariable final long id, @RequestBody final PlaceBidRequest request)
     {
-        return gateway.call(new Command.PlaceBid(id, request.bidderId(), request.amount()), HttpStatus.OK);
+        return gateway.call(new Request.PlaceBid(id, request.bidderId(), request.amount()), HttpStatus.OK);
     }
 
     /**
@@ -136,7 +136,7 @@ public class AuctionController
     @GetMapping("/{id}")
     public CompletableFuture<ResponseEntity<?>> get(@PathVariable final long id)
     {
-        return gateway.call(new Command.GetAuction(id), HttpStatus.OK);
+        return gateway.call(new Request.GetAuction(id), HttpStatus.OK);
     }
 
     /**
@@ -168,7 +168,7 @@ public class AuctionController
     @GetMapping
     public CompletableFuture<ResponseEntity<?>> list(
         @Parameter(description = "Zero-based page number") @RequestParam(defaultValue = "0") final int page,
-        @Parameter(description = "Auctions per page, up to " + Command.ListAuctions.MAX_SIZE)
+        @Parameter(description = "Auctions per page, up to " + Request.ListAuctions.MAX_SIZE)
         @RequestParam(defaultValue = "20") final int size,
         @Parameter(description = "Auctions to include", schema = @Schema(allowableValues = {"ALL", "OPEN", "CLOSED"}))
         @RequestParam(defaultValue = "ALL") final String status,
@@ -182,7 +182,7 @@ public class AuctionController
             return CompletableFuture.completedFuture(
                 ResponseEntity.badRequest().body(new ErrorResponse("INVALID_INPUT")));
         }
-        return gateway.call(new Command.ListAuctions(page, size, statusFilter, sortOrder), HttpStatus.OK);
+        return gateway.call(new Request.ListAuctions(page, size, statusFilter, sortOrder), HttpStatus.OK);
     }
 
     private static AuctionStatusFilter parseStatus(final String status)

@@ -4,7 +4,7 @@ import gc.garcol.aeronauction.cluster.domain.AuctionBook;
 import gc.garcol.aeronauction.cluster.domain.AuctionTimers;
 import gc.garcol.aeronauction.cluster.metrics.NodeMetrics;
 import gc.garcol.aeronauction.protocol.codec.Codec;
-import gc.garcol.aeronauction.protocol.command.Command;
+import gc.garcol.aeronauction.protocol.request.Request;
 import gc.garcol.aeronauction.protocol.model.AuctionView;
 import gc.garcol.aeronauction.protocol.reply.AuctionPageReply;
 import gc.garcol.aeronauction.protocol.reply.AuctionReply;
@@ -88,28 +88,28 @@ public final class AuctionService implements ClusteredService
     {
         lastTimestamp = timestamp;
 
-        final Codec.Request request;
+        final Codec.DecodedRequest decoded;
         try
         {
-            request = codec.decodeRequest(message, offset, length);
+            decoded = codec.decodeRequest(message, offset, length);
         }
         catch (final IllegalArgumentException ex)
         {
             return; // malformed input must never take down the state machine
         }
 
-        final long correlationId = request.correlationId();
-        final int replyLength = switch (request.command())
+        final long correlationId = decoded.correlationId();
+        final int replyLength = switch (decoded.request())
         {
-            case Command.CreateAuction c -> encode(correlationId, create(c, timestamp));
-            case Command.PlaceBid c ->
+            case Request.CreateAuction c -> encode(correlationId, create(c, timestamp));
+            case Request.PlaceBid c ->
             {
                 final AuctionBook.Result bid = book.placeBid(c.auctionId(), c.bidderId(), c.amount(), timestamp);
                 metrics.onBid(bid.status());
                 yield encode(correlationId, bid);
             }
-            case Command.GetAuction c -> encode(correlationId, book.get(c.auctionId(), timestamp));
-            case Command.ListAuctions c ->
+            case Request.GetAuction c -> encode(correlationId, book.get(c.auctionId(), timestamp));
+            case Request.ListAuctions c ->
             {
                 final AuctionBook.Page page = book.list(c.page(), c.size(), c.status(), c.order(), timestamp);
                 final AuctionPageReply pageReply = new AuctionPageReply(
@@ -189,10 +189,10 @@ public final class AuctionService implements ClusteredService
         return codec.encodeReply(new AuctionReply(correlationId, result.status(), result.auction()), buffer);
     }
 
-    private AuctionBook.Result create(final Command.CreateAuction command, final long timestamp)
+    private AuctionBook.Result create(final Request.CreateAuction request, final long timestamp)
     {
         final AuctionBook.Result result = book.create(
-            command.sellerId(), command.startPrice(), command.minIncrement(), command.durationMs(), timestamp);
+            request.sellerId(), request.startPrice(), request.minIncrement(), request.durationMs(), timestamp);
 
         if (result.status() == ReplyStatus.OK)
         {

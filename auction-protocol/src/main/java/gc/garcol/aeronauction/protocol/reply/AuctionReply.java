@@ -1,11 +1,11 @@
 package gc.garcol.aeronauction.protocol.reply;
 
-import gc.garcol.aeronauction.protocol.command.Command;
+import gc.garcol.aeronauction.protocol.request.Request;
 import gc.garcol.aeronauction.protocol.model.AuctionView;
 import gc.garcol.aeronauction.protocol.sbe.ReplyStatus;
 
 /**
- * The cluster's answer to a {@link Command} about one auction.
+ * The cluster's answer to a {@link Request} about one auction.
  *
  * @param correlationId copied from the request.
  * @param status        the outcome.

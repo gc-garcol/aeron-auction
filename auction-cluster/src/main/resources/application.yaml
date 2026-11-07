@@ -22,7 +22,7 @@ auction:
     max-clients: 32
     max-channel-length: 256
     reply-term-length: 1m
-    client-timeout-ms: 10000 # keep this well above the client's auction.read-channel.hello-while-ready-ms
+    client-timeout-ms: 10000 # keep this well above the client's auction.read-channel.heartbeat-while-ready-ms
     sweep-interval-ms: 1000
 
 management:

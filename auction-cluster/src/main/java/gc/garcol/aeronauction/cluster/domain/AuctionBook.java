@@ -1,6 +1,6 @@
 package gc.garcol.aeronauction.cluster.domain;
 
-import gc.garcol.aeronauction.protocol.command.Command;
+import gc.garcol.aeronauction.protocol.request.Request;
 import gc.garcol.aeronauction.protocol.model.AuctionView;
 import gc.garcol.aeronauction.protocol.sbe.AuctionStatusFilter;
 import gc.garcol.aeronauction.protocol.sbe.ReplyStatus;
@@ -187,7 +187,7 @@ public final class AuctionBook
         final SortOrder order,
         final long timestamp)
     {
-        if (page < 0 || size < 1 || size > Command.ListAuctions.MAX_SIZE ||
+        if (page < 0 || size < 1 || size > Request.ListAuctions.MAX_SIZE ||
             status == AuctionStatusFilter.NULL_VAL || order == SortOrder.NULL_VAL)
         {
             return new Page(ReplyStatus.INVALID_INPUT, 0, List.of());

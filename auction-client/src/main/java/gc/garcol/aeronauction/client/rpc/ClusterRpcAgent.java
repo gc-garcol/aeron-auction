@@ -1,7 +1,7 @@
 package gc.garcol.aeronauction.client.rpc;
 
 import gc.garcol.aeronauction.protocol.codec.Codec;
-import gc.garcol.aeronauction.protocol.command.Command;
+import gc.garcol.aeronauction.protocol.request.Request;
 import gc.garcol.aeronauction.protocol.reply.Reply;
 import io.aeron.cluster.client.AeronCluster;
 import io.aeron.cluster.client.EgressListener;
@@ -38,7 +38,7 @@ public final class ClusterRpcAgent implements Agent, EgressListener
     private final long rpcTimeoutMs;
     private final ClusterRpcProperties properties;
     private final MeterRegistry registry;
-    private final ManyToOneConcurrentArrayQueue<Request> queue;
+    private final ManyToOneConcurrentArrayQueue<Submission> queue;
     private final Long2ObjectHashMap<Pending> pending = new Long2ObjectHashMap<>();
     private final Long2LongHashMap timerToCorrelation;
     private final DeadlineTimerWheel wheel;
@@ -105,19 +105,19 @@ public final class ClusterRpcAgent implements Agent, EgressListener
     }
 
     /**
-     * Sends a command to the cluster. Safe to call from any thread.
+     * Sends a request to the cluster. Safe to call from any thread.
      *
-     * @param command to send.
+     * @param request to send.
      * @return a future holding the reply, which fails with {@link RpcFailure} if no reply can be given.
      */
-    public CompletableFuture<Reply> submit(final Command command)
+    public CompletableFuture<Reply> submit(final Request request)
     {
-        final Request request = new Request(command, new CompletableFuture<>(), System.nanoTime());
-        if (!queue.offer(request))
+        final Submission submission = new Submission(request, new CompletableFuture<>(), System.nanoTime());
+        if (!queue.offer(submission))
         {
-            fail(request, RpcFailure.Kind.UNAVAILABLE, "queue_full", "client request queue is full");
+            fail(submission, RpcFailure.Kind.UNAVAILABLE, "queue_full", "client request queue is full");
         }
-        return request.future();
+        return submission.future();
     }
 
     @Override
@@ -135,7 +135,8 @@ public final class ClusterRpcAgent implements Agent, EgressListener
         {
             work += tryConnect(nowMs);
             work += queue.drain(
-                request -> fail(request, RpcFailure.Kind.UNAVAILABLE, "no_session", "not connected to the cluster"),
+                submission -> fail(
+                    submission, RpcFailure.Kind.UNAVAILABLE, "no_session", "not connected to the cluster"),
                 properties.maxSendsPerCycle());
         }
         else
@@ -144,7 +145,7 @@ public final class ClusterRpcAgent implements Agent, EgressListener
             {
                 work += readChannel.doWork(nowMs, cluster.leaderMemberId());
             }
-            work += queue.drain(request -> send(request, nowMs), properties.maxSendsPerCycle());
+            work += queue.drain(submission -> send(submission, nowMs), properties.maxSendsPerCycle());
             work += cluster.pollEgress();
             if (nowMs >= nextKeepAliveMs && !cluster.isClosed())
             {
@@ -191,8 +192,8 @@ public final class ClusterRpcAgent implements Agent, EgressListener
         wheel.cancelTimer(completed.timerId());
         timerToCorrelation.remove(completed.timerId());
         pendingGauge.set(pending.size());
-        record(completed.request(), "ok");
-        completed.request().future().complete(reply);
+        record(completed.submission(), "ok");
+        completed.submission().future().complete(reply);
     }
 
     @Override
@@ -205,17 +206,17 @@ public final class ClusterRpcAgent implements Agent, EgressListener
     public void onClose()
     {
         failAllPending();
-        queue.drain(request -> fail(request, RpcFailure.Kind.UNAVAILABLE, "shutdown", "client is shutting down"));
+        queue.drain(submission -> fail(submission, RpcFailure.Kind.UNAVAILABLE, "shutdown", "client is shutting down"));
         CloseHelper.quietCloseAll(asyncConnect, cluster, readChannel);
         connected = false;
     }
 
-    private void send(final Request request, final long nowMs)
+    private void send(final Submission submission, final long nowMs)
     {
         final long correlationId = nextCorrelationId++;
-        final int length = codec.encode(request.command(), correlationId, buffer);
-        final boolean isRead = request.command() instanceof Command.GetAuction ||
-            request.command() instanceof Command.ListAuctions;
+        final int length = codec.encode(submission.request(), correlationId, buffer);
+        final boolean isRead = submission.request() instanceof Request.GetAuction ||
+            submission.request() instanceof Request.ListAuctions;
         final boolean sentOnReadChannel = isRead && readChannel != null && readChannel.offer(buffer, length);
         if (isRead)
         {
@@ -223,12 +224,12 @@ public final class ClusterRpcAgent implements Agent, EgressListener
         }
         if (!sentOnReadChannel && cluster.offer(buffer, 0, length) < 0)
         {
-            fail(request, RpcFailure.Kind.UNAVAILABLE, "back_pressure", "cluster is unavailable or back-pressured");
+            fail(submission, RpcFailure.Kind.UNAVAILABLE, "back_pressure", "cluster is unavailable or back-pressured");
             return;
         }
         final long timerId = wheel.scheduleTimer(nowMs + rpcTimeoutMs);
         timerToCorrelation.put(timerId, correlationId);
-        pending.put(correlationId, new Pending(request, timerId));
+        pending.put(correlationId, new Pending(submission, timerId));
         pendingGauge.set(pending.size());
     }
 
@@ -249,8 +250,8 @@ public final class ClusterRpcAgent implements Agent, EgressListener
         {
             pendingGauge.set(pending.size());
             registry.counter("auction.rpc.timeouts").increment();
-            record(timedOut.request(), "timeout");
-            timedOut.request().future().completeExceptionally(new RpcFailure(
+            record(timedOut.submission(), "timeout");
+            timedOut.submission().future().completeExceptionally(new RpcFailure(
                 RpcFailure.Kind.TIMEOUT, "no reply within " + rpcTimeoutMs + "ms; the command may still have applied"));
         }
         return true;
@@ -310,35 +311,36 @@ public final class ClusterRpcAgent implements Agent, EgressListener
         pending.forEach((correlationId, entry) ->
         {
             wheel.cancelTimer(entry.timerId());
-            fail(entry.request(), RpcFailure.Kind.UNAVAILABLE, "session_lost", "cluster session was lost");
+            fail(entry.submission(), RpcFailure.Kind.UNAVAILABLE, "session_lost", "cluster session was lost");
         });
         pending.clear();
         timerToCorrelation.clear();
         pendingGauge.set(0);
     }
 
-    private void fail(final Request request, final RpcFailure.Kind kind, final String reason, final String message)
+    private void fail(
+        final Submission submission, final RpcFailure.Kind kind, final String reason, final String message)
     {
         registry.counter("auction.rpc.rejected", "reason", reason).increment();
-        record(request, "rejected");
-        request.future().completeExceptionally(new RpcFailure(kind, message));
+        record(submission, "rejected");
+        submission.future().completeExceptionally(new RpcFailure(kind, message));
     }
 
-    private void record(final Request request, final String outcome)
+    private void record(final Submission submission, final String outcome)
     {
         Timer.builder("auction.rpc.duration")
-            .tag("type", request.command().getClass().getSimpleName())
+            .tag("type", submission.request().getClass().getSimpleName())
             .tag("outcome", outcome)
             .publishPercentileHistogram()
             .register(registry)
-            .record(System.nanoTime() - request.startNanos(), TimeUnit.NANOSECONDS);
+            .record(System.nanoTime() - submission.startNanos(), TimeUnit.NANOSECONDS);
     }
 
-    private record Request(Command command, CompletableFuture<Reply> future, long startNanos)
+    private record Submission(Request request, CompletableFuture<Reply> future, long startNanos)
     {
     }
 
-    private record Pending(Request request, long timerId)
+    private record Pending(Submission submission, long timerId)
     {
     }
 }

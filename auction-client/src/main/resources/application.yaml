@@ -30,8 +30,8 @@ auction:
       max-park-ns: 1000000
   read-channel:
     fragment-limit: 16
-    hello-while-waiting-ms: 250
-    hello-while-ready-ms: 1000 # keep this well below the node's auction.read-channel.client-timeout-ms
+    heartbeat-while-waiting-ms: 250
+    heartbeat-while-ready-ms: 1000 # keep this well below the node's auction.read-channel.client-timeout-ms
     ready-timeout-ms: 3000
     request-term-length: 1m
 

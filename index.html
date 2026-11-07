@@ -481,7 +481,7 @@
                     <tbody>
                     <tr>
                         <th scope="row"><span class="step setup">HTTP</span></th>
-                        <td><code>AuctionController</code> builds a <code>Command</code> and passes it to <code>ClusterCommandGateway</code>,
+                        <td><code>AuctionController</code> builds a <code>Request</code> and passes it to <code>ClusterCommandGateway</code>,
                             which calls <code>ClusterRpcAgent.submit</code>. That queues the request and returns a
                             future. The HTTP thread never touches Aeron. If the queue of 4,096 is full, the caller gets
                             <code>503</code>.
@@ -561,11 +561,11 @@
                     <tbody>
                     <tr>
                         <th scope="row"><span class="step setup">Setup</span></th>
-                        <td><code>ClusterReadChannel</code> sends <code>ReadHello</code> with its reply address (<code>:9007</code>)
+                        <td><code>ClusterReadChannel</code> sends <code>ReadHeartbeat</code> with its reply address (<code>:9007</code>)
                             to the node that the session reports as leader. It repeats every 250 ms until acknowledged,
                             then every second, and at once when the leader changes. <code>ReadChannel</code> opens a
                             reply publication, and only the leader answers with <code>ReadReady</code>. A node accepts
-                            up to 32 clients and drops one after 10 seconds without a hello.
+                            up to 32 clients and drops one after 10 seconds without a heartbeat.
                         </td>
                         <td class="lib">Aeron Transport <code>asyncAddExclusivePublication</code>,
                             <code>ChannelUri</code>; Agrona <code>Int2ObjectHashMap</code></td>

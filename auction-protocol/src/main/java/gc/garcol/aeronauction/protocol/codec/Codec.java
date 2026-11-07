@@ -1,6 +1,6 @@
 package gc.garcol.aeronauction.protocol.codec;
 
-import gc.garcol.aeronauction.protocol.command.Command;
+import gc.garcol.aeronauction.protocol.request.Request;
 import gc.garcol.aeronauction.protocol.model.AuctionView;
 import gc.garcol.aeronauction.protocol.reply.AuctionPageReply;
 import gc.garcol.aeronauction.protocol.reply.AuctionReply;
@@ -23,8 +23,8 @@ import gc.garcol.aeronauction.protocol.sbe.MessageHeaderDecoder;
 import gc.garcol.aeronauction.protocol.sbe.MessageHeaderEncoder;
 import gc.garcol.aeronauction.protocol.sbe.PlaceBidDecoder;
 import gc.garcol.aeronauction.protocol.sbe.PlaceBidEncoder;
-import gc.garcol.aeronauction.protocol.sbe.ReadHelloDecoder;
-import gc.garcol.aeronauction.protocol.sbe.ReadHelloEncoder;
+import gc.garcol.aeronauction.protocol.sbe.ReadHeartbeatDecoder;
+import gc.garcol.aeronauction.protocol.sbe.ReadHeartbeatEncoder;
 import gc.garcol.aeronauction.protocol.sbe.ReadReadyDecoder;
 import gc.garcol.aeronauction.protocol.sbe.ReadReadyEncoder;
 import gc.garcol.aeronauction.protocol.sbe.ReplyStatus;
@@ -67,8 +67,8 @@ public final class Codec
     private final PlaceBidDecoder bidDecoder = new PlaceBidDecoder();
     private final GetAuctionEncoder getEncoder = new GetAuctionEncoder();
     private final GetAuctionDecoder getDecoder = new GetAuctionDecoder();
-    private final ReadHelloEncoder readHelloEncoder = new ReadHelloEncoder();
-    private final ReadHelloDecoder readHelloDecoder = new ReadHelloDecoder();
+    private final ReadHeartbeatEncoder readHeartbeatEncoder = new ReadHeartbeatEncoder();
+    private final ReadHeartbeatDecoder readHeartbeatDecoder = new ReadHeartbeatDecoder();
     private final ReadReadyEncoder readReadyEncoder = new ReadReadyEncoder();
     private final ReadReadyDecoder readReadyDecoder = new ReadReadyDecoder();
     private final ListAuctionsEncoder listEncoder = new ListAuctionsEncoder();
@@ -109,35 +109,35 @@ public final class Codec
     }
 
     /**
-     * Encodes a command at the start of the buffer.
+     * Encodes a request at the start of the buffer.
      *
-     * @param command       to encode.
+     * @param request       to encode.
      * @param correlationId the cluster should reply with.
      * @param buffer        to write to.
      * @return the number of bytes written.
      */
-    public int encode(final Command command, final long correlationId, final MutableDirectBuffer buffer)
+    public int encode(final Request request, final long correlationId, final MutableDirectBuffer buffer)
     {
-        return HEADER_LENGTH + switch (command)
+        return HEADER_LENGTH + switch (request)
         {
-            case Command.CreateAuction c -> createEncoder.wrapAndApplyHeader(buffer, 0, headerEncoder)
+            case Request.CreateAuction c -> createEncoder.wrapAndApplyHeader(buffer, 0, headerEncoder)
                 .correlationId(correlationId)
                 .sellerId(c.sellerId())
                 .startPrice(c.startPrice())
                 .minIncrement(c.minIncrement())
                 .durationMs(c.durationMs())
                 .encodedLength();
-            case Command.PlaceBid c -> bidEncoder.wrapAndApplyHeader(buffer, 0, headerEncoder)
+            case Request.PlaceBid c -> bidEncoder.wrapAndApplyHeader(buffer, 0, headerEncoder)
                 .correlationId(correlationId)
                 .auctionId(c.auctionId())
                 .bidderId(c.bidderId())
                 .amount(c.amount())
                 .encodedLength();
-            case Command.GetAuction c -> getEncoder.wrapAndApplyHeader(buffer, 0, headerEncoder)
+            case Request.GetAuction c -> getEncoder.wrapAndApplyHeader(buffer, 0, headerEncoder)
                 .correlationId(correlationId)
                 .auctionId(c.auctionId())
                 .encodedLength();
-            case Command.ListAuctions c -> listEncoder.wrapAndApplyHeader(buffer, 0, headerEncoder)
+            case Request.ListAuctions c -> listEncoder.wrapAndApplyHeader(buffer, 0, headerEncoder)
                 .correlationId(correlationId)
                 .page(c.page())
                 .size(c.size())
@@ -148,7 +148,7 @@ public final class Codec
     }
 
     /**
-     * Decodes a command received by the cluster.
+     * Decodes a request received by the cluster.
      *
      * @param buffer to read from.
      * @param offset of the message.
@@ -157,7 +157,7 @@ public final class Codec
      * @throws IllegalArgumentException if the message is malformed. The cluster drops such messages rather than
      *                                  crashing, because input comes from outside the replicated state machine.
      */
-    public Request decodeRequest(final DirectBuffer buffer, final int offset, final int length)
+    public DecodedRequest decodeRequest(final DirectBuffer buffer, final int offset, final int length)
     {
         final int templateId = wrapHeader(buffer, offset, length);
         final int body = offset + HEADER_LENGTH;
@@ -169,7 +169,7 @@ public final class Codec
             case CreateAuctionDecoder.TEMPLATE_ID ->
             {
                 createDecoder.wrap(buffer, body, blockLength, version);
-                yield new Request(createDecoder.correlationId(), new Command.CreateAuction(
+                yield new DecodedRequest(createDecoder.correlationId(), new Request.CreateAuction(
                     createDecoder.sellerId(),
                     createDecoder.startPrice(),
                     createDecoder.minIncrement(),
@@ -178,18 +178,18 @@ public final class Codec
             case PlaceBidDecoder.TEMPLATE_ID ->
             {
                 bidDecoder.wrap(buffer, body, blockLength, version);
-                yield new Request(bidDecoder.correlationId(), new Command.PlaceBid(
+                yield new DecodedRequest(bidDecoder.correlationId(), new Request.PlaceBid(
                     bidDecoder.auctionId(), bidDecoder.bidderId(), bidDecoder.amount()));
             }
             case GetAuctionDecoder.TEMPLATE_ID ->
             {
                 getDecoder.wrap(buffer, body, blockLength, version);
-                yield new Request(getDecoder.correlationId(), new Command.GetAuction(getDecoder.auctionId()));
+                yield new DecodedRequest(getDecoder.correlationId(), new Request.GetAuction(getDecoder.auctionId()));
             }
             case ListAuctionsDecoder.TEMPLATE_ID ->
             {
                 listDecoder.wrap(buffer, body, blockLength, version);
-                yield new Request(listDecoder.correlationId(), decodeList());
+                yield new DecodedRequest(listDecoder.correlationId(), decodeList());
             }
             default -> throw new IllegalArgumentException("unknown template " + templateId);
         };
@@ -212,45 +212,45 @@ public final class Codec
     }
 
     /**
-     * Encodes a read channel hello at the start of the buffer.
+     * Encodes a read channel heartbeat at the start of the buffer.
      *
      * @param replyChannel where the leader should send replies.
      * @param buffer       to write to.
      * @return the number of bytes written.
      */
-    public int encodeReadHello(final String replyChannel, final MutableDirectBuffer buffer)
+    public int encodeReadHeartbeat(final String replyChannel, final MutableDirectBuffer buffer)
     {
-        return HEADER_LENGTH + readHelloEncoder.wrapAndApplyHeader(buffer, 0, headerEncoder)
+        return HEADER_LENGTH + readHeartbeatEncoder.wrapAndApplyHeader(buffer, 0, headerEncoder)
             .replyChannel(replyChannel)
             .encodedLength();
     }
 
     /**
-     * Says whether a message is a read channel hello.
+     * Says whether a message is a read channel heartbeat.
      *
      * @param buffer to read from.
      * @param offset of the message.
      * @param length of the message.
      * @return true if it is.
      */
-    public boolean isReadHello(final DirectBuffer buffer, final int offset, final int length)
+    public boolean isReadHeartbeat(final DirectBuffer buffer, final int offset, final int length)
     {
-        return wrapHeader(buffer, offset, length) == ReadHelloDecoder.TEMPLATE_ID;
+        return wrapHeader(buffer, offset, length) == ReadHeartbeatDecoder.TEMPLATE_ID;
     }
 
     /**
-     * Decodes a read channel hello.
+     * Decodes a read channel heartbeat.
      *
      * @param buffer to read from.
      * @param offset of the message.
      * @param length of the message.
      * @return where the leader should send replies.
      */
-    public String decodeReadHello(final DirectBuffer buffer, final int offset, final int length)
+    public String decodeReadHeartbeat(final DirectBuffer buffer, final int offset, final int length)
     {
         wrapHeader(buffer, offset, length);
-        readHelloDecoder.wrap(buffer, offset + HEADER_LENGTH, headerDecoder.blockLength(), headerDecoder.version());
-        return readHelloDecoder.replyChannel();
+        readHeartbeatDecoder.wrap(buffer, offset + HEADER_LENGTH, headerDecoder.blockLength(), headerDecoder.version());
+        return readHeartbeatDecoder.replyChannel();
     }
 
     /**
@@ -401,13 +401,13 @@ public final class Codec
     }
 
     // Logs recorded before status and order existed keep their old meaning: all auctions, oldest first.
-    private Command.ListAuctions decodeList()
+    private Request.ListAuctions decodeList()
     {
         final int page = listDecoder.page();
         final int size = listDecoder.size();
         final AuctionStatusFilter status = listDecoder.status();
         final SortOrder order = listDecoder.order();
-        return new Command.ListAuctions(
+        return new Request.ListAuctions(
             page,
             size,
             status == AuctionStatusFilter.NULL_VAL ? AuctionStatusFilter.ALL : status,
@@ -448,12 +448,12 @@ public final class Codec
     }
 
     /**
-     * A decoded command and the ID to reply with.
+     * A decoded request and the ID to reply with.
      *
      * @param correlationId chosen by the client.
-     * @param command       to apply.
+     * @param request       to handle.
      */
-    public record Request(long correlationId, Command command)
+    public record DecodedRequest(long correlationId, Request request)
     {
     }
 

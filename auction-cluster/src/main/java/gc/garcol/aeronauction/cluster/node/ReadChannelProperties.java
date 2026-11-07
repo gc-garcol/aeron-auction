@@ -9,7 +9,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  * @param maxClients       how many clients can use the read channel at once.
  * @param maxChannelLength the longest reply channel a client can send.
  * @param replyTermLength  the term length of each reply publication.
- * @param clientTimeoutMs  how long a client can go without a hello before it's dropped.
+ * @param clientTimeoutMs  how long a client can go without a heartbeat before it's dropped.
  * @param sweepIntervalMs  how often to look for clients to drop.
  */
 @ConfigurationProperties("auction.read-channel")

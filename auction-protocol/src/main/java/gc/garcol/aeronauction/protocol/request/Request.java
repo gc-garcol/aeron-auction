@@ -1,10 +1,10 @@
-package gc.garcol.aeronauction.protocol.command;
+package gc.garcol.aeronauction.protocol.request;
 
 import gc.garcol.aeronauction.protocol.sbe.AuctionStatusFilter;
 import gc.garcol.aeronauction.protocol.sbe.SortOrder;
 
 /** A request from the client to the cluster. */
-public sealed interface Command
+public sealed interface Request
 {
     /**
      * Opens a new auction.
@@ -14,7 +14,7 @@ public sealed interface Command
      * @param minIncrement the amount each later bid must add.
      * @param durationMs   how long the auction stays open.
      */
-    record CreateAuction(long sellerId, long startPrice, long minIncrement, long durationMs) implements Command
+    record CreateAuction(long sellerId, long startPrice, long minIncrement, long durationMs) implements Request
     {
     }
 
@@ -25,7 +25,7 @@ public sealed interface Command
      * @param bidderId  of the bidder.
      * @param amount    of the bid.
      */
-    record PlaceBid(long auctionId, long bidderId, long amount) implements Command
+    record PlaceBid(long auctionId, long bidderId, long amount) implements Request
     {
     }
 
@@ -34,7 +34,7 @@ public sealed interface Command
      *
      * @param auctionId of the auction.
      */
-    record GetAuction(long auctionId) implements Command
+    record GetAuction(long auctionId) implements Request
     {
     }
 
@@ -46,7 +46,7 @@ public sealed interface Command
      * @param status which auctions to include.
      * @param order the direction to sort IDs in.
      */
-    record ListAuctions(int page, int size, AuctionStatusFilter status, SortOrder order) implements Command
+    record ListAuctions(int page, int size, AuctionStatusFilter status, SortOrder order) implements Request
     {
         /**
          * The largest page. The cluster sends a page as one message, so this keeps it within Aeron's message limit.

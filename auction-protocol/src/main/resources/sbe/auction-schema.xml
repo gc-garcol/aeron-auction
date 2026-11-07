@@ -82,7 +82,7 @@
         <field name="order" id="5" type="SortOrder" sinceVersion="1"/>
     </sbe:message>
 
-    <sbe:message name="ReadHello" id="5" description="Read channel: where the leader should send replies">
+    <sbe:message name="ReadHeartbeat" id="5" description="Read channel: where the leader should send replies">
         <data name="replyChannel" id="1" type="varStringEncoding"/>
     </sbe:message>
 

@@ -5,7 +5,7 @@ import gc.garcol.aeronauction.client.api.dto.ErrorResponse;
 import gc.garcol.aeronauction.client.api.dto.PageResponse;
 import gc.garcol.aeronauction.client.rpc.ClusterRpcAgent;
 import gc.garcol.aeronauction.client.rpc.RpcFailure;
-import gc.garcol.aeronauction.protocol.command.Command;
+import gc.garcol.aeronauction.protocol.request.Request;
 import gc.garcol.aeronauction.protocol.reply.AuctionPageReply;
 import gc.garcol.aeronauction.protocol.reply.AuctionReply;
 import gc.garcol.aeronauction.protocol.reply.Reply;
@@ -62,9 +62,9 @@ final class ClusterGateway
         return ResponseEntity.internalServerError().body(new ErrorResponse("unexpected error"));
     }
 
-    CompletableFuture<ResponseEntity<?>> call(final Command command, final HttpStatus success)
+    CompletableFuture<ResponseEntity<?>> call(final Request request, final HttpStatus success)
     {
-        return rpc.submit(command).handle((reply, failure) ->
+        return rpc.submit(request).handle((reply, failure) ->
             failure != null ? toFailureResponse(failure) : toResponse(reply, success));
     }
 }

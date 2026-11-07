@@ -3,7 +3,7 @@ package gc.garcol.aeronauction.cluster.node;
 import gc.garcol.aeronauction.cluster.domain.AuctionBook;
 import gc.garcol.aeronauction.cluster.metrics.NodeMetrics;
 import gc.garcol.aeronauction.protocol.codec.Codec;
-import gc.garcol.aeronauction.protocol.command.Command;
+import gc.garcol.aeronauction.protocol.request.Request;
 import gc.garcol.aeronauction.protocol.reply.AuctionPageReply;
 import gc.garcol.aeronauction.protocol.reply.AuctionReply;
 import io.aeron.Aeron;
@@ -100,9 +100,9 @@ final class ReadChannel implements AutoCloseable
     {
         try
         {
-            if (codec.isReadHello(message, offset, length))
+            if (codec.isReadHeartbeat(message, offset, length))
             {
-                onHello(codec.decodeReadHello(message, offset, length), header.sessionId());
+                onHeartbeat(codec.decodeReadHeartbeat(message, offset, length), header.sessionId());
             }
             else
             {
@@ -115,7 +115,7 @@ final class ReadChannel implements AutoCloseable
         }
     }
 
-    private void onHello(final String replyChannel, final int sessionId)
+    private void onHeartbeat(final String replyChannel, final int sessionId)
     {
         ClientLink link = clients.get(sessionId);
         if (link == null)
@@ -137,7 +137,7 @@ final class ReadChannel implements AutoCloseable
             link = new ClientLink(registrationId, nowNs);
             clients.put(sessionId, link);
         }
-        link.lastHelloNs = nowNs;
+        link.lastHeartbeatNs = nowNs;
 
         // Only the leader acknowledges, so a client only starts sending reads here while this node leads.
         final ExclusivePublication publication = resolve(sessionId, link);
@@ -147,18 +147,18 @@ final class ReadChannel implements AutoCloseable
         }
     }
 
-    private void onRead(final Codec.Request request, final int sessionId)
+    private void onRead(final Codec.DecodedRequest decoded, final int sessionId)
     {
-        final long correlationId = request.correlationId();
+        final long correlationId = decoded.correlationId();
         final int length;
-        switch (request.command())
+        switch (decoded.request())
         {
-            case Command.GetAuction c ->
+            case Request.GetAuction c ->
             {
                 final AuctionBook.Result result = book.get(c.auctionId(), timestamp);
                 length = codec.encodeReply(new AuctionReply(correlationId, result.status(), result.auction()), buffer);
             }
-            case Command.ListAuctions c ->
+            case Request.ListAuctions c ->
             {
                 final AuctionBook.Page page = book.list(c.page(), c.size(), c.status(), c.order(), timestamp);
                 length = codec.encodePageReply(
@@ -212,7 +212,7 @@ final class ReadChannel implements AutoCloseable
         while (links.hasNext())
         {
             final ClientLink link = links.next();
-            if (nowNs - link.lastHelloNs > clientTimeoutNs)
+            if (nowNs - link.lastHeartbeatNs > clientTimeoutNs)
             {
                 links.remove();
                 if (link.publication != null)
@@ -231,12 +231,12 @@ final class ReadChannel implements AutoCloseable
     {
         final long registrationId;
         ExclusivePublication publication;
-        long lastHelloNs;
+        long lastHeartbeatNs;
 
         ClientLink(final long registrationId, final long nowNs)
         {
             this.registrationId = registrationId;
-            this.lastHelloNs = nowNs;
+            this.lastHeartbeatNs = nowNs;
         }
     }
 }

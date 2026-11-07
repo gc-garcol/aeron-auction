@@ -20,7 +20,7 @@ import java.util.Map;
  * The client's end of the read channel, which sends reads directly to the leader so they add nothing to the log.
  * Used only from the RPC agent's thread.
  *
- * <p>It says hello to the leader until the leader acknowledges. {@link #offer} refuses a read unless the leader has
+ * <p>It sends heartbeats to the leader, which acknowledges each one. {@link #offer} refuses a read unless the leader has
  * acknowledged recently, and the agent then sends that read through the log instead, such as during a failover.
  */
 final class ClusterReadChannel implements AutoCloseable
@@ -38,12 +38,12 @@ final class ClusterReadChannel implements AutoCloseable
     private final FragmentAssembler assembler;
     private final FragmentHandler replyHandler;
     private final Codec codec = new Codec();
-    private final ExpandableArrayBuffer helloBuffer = new ExpandableArrayBuffer(Codec.MAX_MESSAGE_LENGTH);
+    private final ExpandableArrayBuffer heartbeatBuffer = new ExpandableArrayBuffer(Codec.MAX_MESSAGE_LENGTH);
 
     private int leaderId = NOT_ACKNOWLEDGED;
     private int acknowledgedBy = NOT_ACKNOWLEDGED;
     private long lastAcknowledgedMs;
-    private long nextHelloMs;
+    private long nextHeartbeatMs;
     private long nowMs;
 
     ClusterReadChannel(
@@ -86,14 +86,16 @@ final class ClusterReadChannel implements AutoCloseable
         if (currentLeaderId != leaderId)
         {
             leaderId = currentLeaderId;
-            nextHelloMs = 0; // greet a new leader straight away
+            nextHeartbeatMs = 0; // send a heartbeat to a new leader straight away
         }
 
         final int work = subscription.poll(assembler, properties.fragmentLimit());
-        if (now >= nextHelloMs)
+        if (now >= nextHeartbeatMs)
         {
-            sayHello();
-            nextHelloMs = now + (isReady() ? properties.helloWhileReadyMs() : properties.helloWhileWaitingMs());
+            sendHeartbeat();
+            final long intervalMs =
+                isReady() ? properties.heartbeatWhileReadyMs() : properties.heartbeatWhileWaitingMs();
+            nextHeartbeatMs = now + intervalMs;
         }
         return work;
     }
@@ -122,12 +124,12 @@ final class ClusterReadChannel implements AutoCloseable
         return acknowledgedBy == leaderId && nowMs - lastAcknowledgedMs < properties.readyTimeoutMs();
     }
 
-    private void sayHello()
+    private void sendHeartbeat()
     {
         final ExclusivePublication publication = publication(leaderId);
         if (publication != null)
         {
-            publication.offer(helloBuffer, 0, codec.encodeReadHello(replyChannel, helloBuffer));
+            publication.offer(heartbeatBuffer, 0, codec.encodeReadHeartbeat(replyChannel, heartbeatBuffer));
         }
     }
 
