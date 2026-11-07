@@ -70,6 +70,9 @@ kubectl -n auction get pods -o wide
 
 All 5 pods should be `1/1 Running`. A client becomes ready only once it has a session with the cluster's leader.
 
+Or with [k9s](#dashboards): run `k9s -n auction` and watch the pods turn `1/1 Running`. Press `l` on a pod that stays
+`0/1` to see why.
+
 **4. Try it.**
 
 ```bash
@@ -115,6 +118,10 @@ docker build -f infra/docker/Dockerfile.client -t aeron-auction/client:latest .
 ./infra/k8s/load-images.sh   # only for kind-based clusters
 kubectl -n auction rollout restart statefulset/auction-aeron-auction-cluster deployment/auction-aeron-auction-client
 ```
+
+Or with [k9s](#dashboards), instead of the last line: go to `:sts`, select `auction-aeron-auction-cluster` and press
+`r`, then do the same in `:deploy` for `auction-aeron-auction-client`. In `:pods`, the members are replaced one at a
+time.
 
 The StatefulSet replaces one member at a time, so the cluster keeps a quorum and its data throughout. When the leader's
 turn comes there is an election, and requests return `503` for a few seconds (about 10-15s locally) until the clients

@@ -86,7 +86,7 @@ spec:
             - name: SERVER_PORT
               value: {{ $p.http | quote }}
             - name: JAVA_TOOL_OPTIONS
-              value: {{ .Values.cluster.javaToolOptions | quote }}
+              value: {{ printf "%s %s" (.Values.cluster.gcOpts | default "") .Values.cluster.javaToolOptions | trim | quote }}
             - name: MANAGEMENT_ENDPOINT_HEALTH_PROBES_ENABLED
               value: "true"
             {{- with .Values.cluster.extraEnv }}

@@ -17,6 +17,9 @@ cluster:
   javaOpts: "--add-opens java.base/jdk.internal.misc=ALL-UNNAMED"
   # JVM memory flags. The heap plus /dev/shm (counted as memory) must stay under resources.limits.memory.
   javaToolOptions: "-XX:MaxRAMPercentage=35 -XX:+ExitOnOutOfMemoryError"
+  # Garbage collector, put before javaToolOptions. ZGC keeps pauses under a millisecond, so a GC doesn't delay
+  # heartbeats or the replicated log. Set "" to use the JVM's default (G1).
+  gcOpts: "-XX:+UseZGC"
 
   ports:
     http: 9100 # actuator: health and prometheus
