@@ -5,7 +5,6 @@ import gc.garcol.aeronauction.cluster.metrics.NodeMetrics;
 import gc.garcol.aeronauction.protocol.codec.Codec;
 import gc.garcol.aeronauction.protocol.request.Request;
 import gc.garcol.aeronauction.protocol.reply.AuctionPageReply;
-import gc.garcol.aeronauction.protocol.reply.AuctionReply;
 import io.aeron.Aeron;
 import io.aeron.ChannelUri;
 import io.aeron.ExclusivePublication;
@@ -156,7 +155,7 @@ final class ReadChannel implements AutoCloseable
             case Request.GetAuction c ->
             {
                 final AuctionBook.Result result = book.get(c.auctionId(), timestamp);
-                length = codec.encodeReply(new AuctionReply(correlationId, result.status(), result.auction()), buffer);
+                length = codec.encodeReply(correlationId, result.status(), result.auction(), buffer);
             }
             case Request.ListAuctions c ->
             {

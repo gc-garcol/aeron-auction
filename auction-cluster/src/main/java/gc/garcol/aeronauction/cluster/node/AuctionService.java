@@ -7,7 +7,6 @@ import gc.garcol.aeronauction.protocol.codec.Codec;
 import gc.garcol.aeronauction.protocol.request.Request;
 import gc.garcol.aeronauction.protocol.model.AuctionView;
 import gc.garcol.aeronauction.protocol.reply.AuctionPageReply;
-import gc.garcol.aeronauction.protocol.reply.AuctionReply;
 import gc.garcol.aeronauction.protocol.sbe.ReplyStatus;
 import io.aeron.ExclusivePublication;
 import io.aeron.Image;
@@ -186,7 +185,7 @@ public final class AuctionService implements ClusteredService
 
     private int encode(final long correlationId, final AuctionBook.Result result)
     {
-        return codec.encodeReply(new AuctionReply(correlationId, result.status(), result.auction()), buffer);
+        return codec.encodeReply(correlationId, result.status(), result.auction(), buffer);
     }
 
     private AuctionBook.Result create(final Request.CreateAuction request, final long timestamp)

@@ -204,10 +204,28 @@ public final class Codec
      */
     public int encodeReply(final AuctionReply reply, final MutableDirectBuffer buffer)
     {
+        return encodeReply(reply.correlationId(), reply.status(), reply.auction(), buffer);
+    }
+
+    /**
+     * Encodes a reply at the start of the buffer, without building an {@link AuctionReply} first.
+     *
+     * @param correlationId copied from the request.
+     * @param status        the outcome.
+     * @param auction       the affected auction, or {@link AuctionView#NONE} if there is none to show.
+     * @param buffer        to write to.
+     * @return the number of bytes written.
+     */
+    public int encodeReply(
+        final long correlationId,
+        final ReplyStatus status,
+        final AuctionView auction,
+        final MutableDirectBuffer buffer)
+    {
         replyEncoder.wrapAndApplyHeader(buffer, 0, headerEncoder)
-            .correlationId(reply.correlationId())
-            .status(reply.status());
-        write(replyEncoder.auction(), reply.auction());
+            .correlationId(correlationId)
+            .status(status);
+        write(replyEncoder.auction(), auction);
         return HEADER_LENGTH + replyEncoder.encodedLength();
     }
 
