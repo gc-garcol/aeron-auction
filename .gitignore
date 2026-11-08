@@ -34,3 +34,6 @@ build/
 
 ### k6 ###
 benchmark/report.html
+
+### Claude Code (personal settings) ###
+.claude/settings.local.json
